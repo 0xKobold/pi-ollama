@@ -139,8 +139,9 @@ function getContextLength(modelInfo: ModelDetails["model_info"]): number {
   ];
   
   for (const key of contextKeys) {
-    if (modelInfo[key]) {
-      return modelInfo[key];
+    const value = modelInfo[key];
+    if (typeof value === "number" && value > 0) {
+      return value;
     }
   }
   
