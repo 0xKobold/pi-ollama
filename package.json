@@ -32,12 +32,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/0xKobold/0xKobolds.git",
+    "url": "git+https://github.com/0xKobold/pi-ollama.git",
     "directory": "packages/pi-ollama"
   },
   "bugs": {
-    "url": "https://github.com/0xKobold/0xKobolds/issues"
+    "url": "https://github.com/0xKobold/pi-ollama/issues"
   },
-  "homepage": "https://github.com/0xKobold/0xKobolds/tree/main/packages/pi-ollama#readme"
+  "homepage": "https://github.com/0xKobold/pi-ollama#readme"
 }
 }
