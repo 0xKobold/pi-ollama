@@ -18,8 +18,12 @@ const DEFAULT_CONFIG = {
 
 let CONFIG = { ...DEFAULT_CONFIG };
 
-// Load from pi settings
+// Load from pi settings and env
 function loadConfig(pi: ExtensionAPI) {
+  // Reset to defaults first
+  CONFIG = { ...DEFAULT_CONFIG };
+  
+  // Try pi.settings first
   const settings = (pi as any).settings;
   if (settings?.get) {
     CONFIG.baseUrl = settings.get("ollama.baseUrl") || CONFIG.baseUrl;
@@ -27,12 +31,15 @@ function loadConfig(pi: ExtensionAPI) {
     CONFIG.defaultModel = settings.get("ollama.defaultModel") || CONFIG.defaultModel;
     CONFIG.customModels = settings.get("ollama.customModels") || CONFIG.customModels;
   }
-}
-
-// Environment fallback
-if (typeof process !== 'undefined') {
-  CONFIG.apiKey = process.env.OLLAMA_API_KEY || CONFIG.apiKey;
-  CONFIG.baseUrl = process.env.OLLAMA_BASE_URL || CONFIG.baseUrl;
+  
+  // Environment override (runtime)
+  if (typeof process !== 'undefined') {
+    CONFIG.apiKey = process.env.OLLAMA_API_KEY || CONFIG.apiKey;
+    CONFIG.baseUrl = process.env.OLLAMA_BASE_URL || CONFIG.baseUrl;
+    CONFIG.defaultModel = process.env.OLLAMA_DEFAULT_MODEL || CONFIG.defaultModel;
+  }
+  
+  console.log(`[pi-ollama] Config: baseUrl=${CONFIG.baseUrl}, hasApiKey=${!!CONFIG.apiKey}`);
 }
 
 // ============================================================================
