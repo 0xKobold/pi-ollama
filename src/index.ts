@@ -528,11 +528,15 @@ export default function ollamaExtension(pi: ExtensionAPI) {
     },
   });
   
-  // Auto-register models on startup
-  fetchLocalModels().then(models => {
-    if (models.length > 0 && (pi as any).registerProviderModels) {
-      (pi as any).registerProviderModels("ollama", models);
-      console.log(`[pi-ollama] Registered ${models.length} models with accurate details`);
+  // Auto-register models on startup (local + cloud)
+  const apiKey = getOllamaApiKey();
+  Promise.all([fetchLocalModels(), fetchCloudModels(apiKey)]).then(([local, cloud]) => {
+    const allModels = [...local, ...cloud];
+    if (allModels.length > 0 && (pi as any).registerProviderModels) {
+      (pi as any).registerProviderModels("ollama", allModels);
+      console.log(`[pi-ollama] Registered ${local.length} local, ${cloud.length} cloud models`);
+    } else {
+      console.log("[pi-ollama] No models found. Ensure Ollama is running or set cloud API key.");
     }
   });
   
