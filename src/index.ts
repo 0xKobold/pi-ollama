@@ -1,78 +1,39 @@
 /**
- * Pi Ollama Extension
+ * Pi Ollama Extension - Working Version
  * 
- * Unified local + cloud Ollama support for pi-coding-agent
- * Uses /api/show for accurate model details (context length, capabilities)
- * 
- * Installation:
- *   pi install npm:@0xkobold/pi-ollama
- * 
- * Or in pi-config.ts:
- *   extensions: ['npm:@0xkobold/pi-ollama']
- * 
- * Features:
- * - Local Ollama (localhost:11434)
- * - Ollama Cloud (ollama.com) with API key
- * - Model management via /ollama commands
- * - Accurate context length from /api/show
- * - Vision capability detection from model metadata
- * 
- * @see https://ollama.com
- * @see https://github.com/0xKobold/pi-ollama
+ * Uses same config pattern as local extension
  */
 
 import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
-
-interface OllamaConfig {
-  baseUrl?: string;
-  apiKey?: string;
-  defaultModel?: string;
-  customModels?: string[];
-}
-
-interface ModelDetails {
-  name: string;
-  capabilities?: string[];
-  model_info?: {
-    "gemma3.context_length"?: number;
-    "llama.context_length"?: number;
-    "general.context_length"?: number;
-    [key: string]: any;
-  };
-  details?: {
-    parameter_size?: string;
-    family?: string;
-    quantization_level?: string;
-  };
-  modified_at?: string;
-}
-
-// Default config (can be overridden via pi settings)
-let CONFIG: OllamaConfig = {
+// Default config
+const DEFAULT_CONFIG = {
   baseUrl: "http://localhost:11434",
+  cloudUrl: "https://ollama.com",
   apiKey: "",
   defaultModel: "",
-  customModels: [],
+  customModels: [] as string[],
 };
 
-// Load from pi settings if available
-function loadConfig(pi: ExtensionAPI): void {
+let CONFIG = { ...DEFAULT_CONFIG };
+
+// Load from pi settings
+function loadConfig(pi: ExtensionAPI) {
   const settings = (pi as any).settings;
-  if (settings) {
-    CONFIG.baseUrl = settings.get?.("ollama.baseUrl") || CONFIG.baseUrl;
-    CONFIG.apiKey = settings.get?.("ollama.apiKey") || CONFIG.apiKey;
-    CONFIG.defaultModel = settings.get?.("ollama.defaultModel") || CONFIG.defaultModel;
-    CONFIG.customModels = settings.get?.("ollama.customModels") || CONFIG.customModels;
+  if (settings?.get) {
+    CONFIG.baseUrl = settings.get("ollama.baseUrl") || CONFIG.baseUrl;
+    CONFIG.apiKey = settings.get("ollama.apiKey") || CONFIG.apiKey;
+    CONFIG.defaultModel = settings.get("ollama.defaultModel") || CONFIG.defaultModel;
+    CONFIG.customModels = settings.get("ollama.customModels") || CONFIG.customModels;
   }
 }
 
-const LOCAL_URL = "http://localhost:11434";
-const CLOUD_URL = "https://ollama.com";
+// Environment fallback
+if (typeof process !== 'undefined') {
+  CONFIG.apiKey = process.env.OLLAMA_API_KEY || CONFIG.apiKey;
+  CONFIG.baseUrl = process.env.OLLAMA_BASE_URL || CONFIG.baseUrl;
+}
 
 // ============================================================================
 // HTTP CLIENT
@@ -90,393 +51,212 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
 
 async function testLocalConnection(): Promise<boolean> {
   try {
-    const response = await fetchWithTimeout(`${LOCAL_URL}/api/tags`, {}, 2000);
+    const response = await fetchWithTimeout(`${CONFIG.baseUrl}/api/tags`, {}, 2000);
     return response.ok;
   } catch {
     return false;
   }
 }
 
-async function fetchModelDetails(modelName: string, baseUrl: string = LOCAL_URL): Promise<ModelDetails | null> {
+// ============================================================================
+// MODEL DETECTION
+// ============================================================================
+
+interface ModelDetails {
+  name: string;
+  capabilities?: string[];
+  model_info?: Record<string, any>;
+  details?: {
+    parameter_size?: string;
+    family?: string;
+    quantization_level?: string;
+  };
+}
+
+async function fetchModelDetails(modelName: string): Promise<ModelDetails | null> {
   try {
-    const response = await fetchWithTimeout(
-      `${baseUrl}/api/show`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: modelName, verbose: true }),
-      },
-      5000
-    );
-    
+    const response = await fetch(`${CONFIG.baseUrl}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: modelName }),
+    });
     if (!response.ok) return null;
-    
-    const data = await response.json();
-    return {
-      name: modelName,
-      capabilities: data.capabilities || [],
-      model_info: data.model_info || {},
-      details: data.details || {},
-      modified_at: data.modified_at,
-    };
-  } catch (e) {
-    console.error(`[pi-ollama] Failed to fetch details for ${modelName}:`, e);
+    return await response.json();
+  } catch {
     return null;
   }
 }
 
-function getContextLength(modelInfo: ModelDetails["model_info"], modelName?: string): number {
-  // Handle null/undefined modelInfo - use name detection
-  if (!modelInfo) {
-    const modelId = (modelName || "").toLowerCase();
-    if (modelId.includes("kimi")) return 256000;
-    if (modelId.includes("claude")) return 200000;
-    if (modelId.includes("gpt-4") || modelId.includes("4o")) return 128000;
-    if (modelId.includes("mixtral")) return 32768;
-    if (modelId.includes("qwen3")) return 262144;
-    if (modelId.includes("gptoss")) return 131072;
-    if (modelId.includes("minimax")) return 256000;
-    if (modelId.includes("nomic")) return 2048;
-    return 128000; // Default fallback
-  }
+function getContextLength(modelInfo: Record<string, any> | undefined): number {
+  if (!modelInfo) return 128000;
   
-  // Try exact keys first
-  // Known model architectures with their context length keys
-  const contextKeys = [
-    // Local models (have full metadata)
-    "general.context_length",
-    "gemma3.context_length", 
-    "llama.context_length",
-    "mistral.context_length",
-    "qwen2.context_length",
-    "qwen3moe.context_length",      // Qwen3: 262K
-    "phi3.context_length",
-    "kimi.context_length",
-    "kimi2.context_length",
-    "kimi2_5.context_length",
-    "deepseek.context_length",
-    "claude.context_length",
-    "gpt.context_length",
-    "gptoss.context_length",        // GPT-OSS: 128K
-    "yi.context_length",
-    "command.context_length",
-    "dolphin.context_length",
-    "solar.context_length",
-    "mixtral.context_length",
-    "codellama.context_length",
-    "vicuna.context_length",
-    "starcoder.context_length",
-    "falcon.context_length",
-    "openchat.context_length",
-    "zephyr.context_length",
-    "neural.context_length",
-    "nomic-bert.context_length",    // Nomic: 2K
-    "minimax.context_length",       // Minimax: varies
-    "embedding_length",             // Sometimes used for embed models
-  ];
-  
-  // Try known keys first
-  for (const key of contextKeys) {
-    const value = modelInfo[key];
-    if (typeof value === "number" && value > 0) {
-      return value;
+  const keys = Object.keys(modelInfo);
+  for (const key of keys) {
+    if (key.endsWith('.context_length') && typeof modelInfo[key] === 'number') {
+      return modelInfo[key];
     }
   }
-  
-  // Fallback: search for any key containing "context_length"
-  for (const key of Object.keys(modelInfo)) {
-    if (key.includes("context_length")) {
-      const value = modelInfo[key];
-      if (typeof value === "number" && value > 0) {
-        return value;
-      }
-    }
-  }
-  
-  // Architecture-specific defaults if we can detect the model family
-  // Check model name first (for cloud models with no metadata)
-  const searchId = (modelName || "") + " " + JSON.stringify(modelInfo);
-  const modelId = searchId.toLowerCase();
-  
-  if (modelId.includes("kimi") || modelId.includes("k2.5")) {
-    return 256000; // Kimi K2.5: 256K context
-  }
-  
-  if (modelId.includes("claude") || modelId.includes("haiku") || modelId.includes("sonnet")) {
-    return 200000; // Claude models: 200K context
-  }
-  
-  if (modelId.includes("4o") || modelId.includes("gpt-4")) {
-    return 128000; // GPT-4: 128K context
-  }
-  
-  if (modelId.includes("mixtral") || modelId.includes("mistral-large")) {
-    return 32768; // Mixtral: 32K context
-  }
-  
-  if (modelId.includes("gemma3")) {
-    return 131072; // Gemma3: 128K context
-  }
-  
-  if (modelId.includes("llama3.1") || modelId.includes("llama3.2")) {
-    return 128000; // Llama 3.1/3.2: 128K context
-  }
-  
-  if (modelId.includes("qwen3")) {
-    return 262144; // Qwen3: 256K context
-  }
-  
-  if (modelId.includes("gps-oss")) {
-    return 131072; // GPT-OSS: 128K context
-  }
-  
-  if (modelId.includes("minimax")) {
-    return 256000; // Minimax: assume 256K
-  }
-  
-  if (modelId.includes("nomic")) {
-    return 2048; // Nomic embed: 2K context
-  }
-  
-  return 128000; // Default fallback
+  return 128000;
 }
 
 function hasVisionCapability(details: ModelDetails): boolean {
-  // Check capabilities array from /api/show
-  if (details.capabilities?.includes("vision")) return true;
-  
-  // Check model_info for vision-related keys
-  const modelInfo = details.model_info || {};
-  const visionKeys = Object.keys(modelInfo).some(key => 
-    key.includes("vision") || key.includes("mm.")
-  );
-  
-  return visionKeys;
+  if (details.capabilities?.includes('vision')) return true;
+  if (details.capabilities?.includes('image')) return true;
+  return false;
 }
 
 function hasReasoningCapability(name: string): boolean {
-  const lowerName = name.toLowerCase();
-  return ["coder", "r1", "deepseek", "kimi", "think", "reason"].some(kw => 
-    lowerName.includes(kw)
-  );
+  const lower = name.toLowerCase();
+  return ['coder', 'r1', 'deepseek', 'kimi', 'think', 'reason'].some(k => lower.includes(k));
 }
 
 // ============================================================================
-// MODEL FACTORY (with /api/show data)
+// MODEL CREATION
 // ============================================================================
 
-function createModel(
-  name: string, 
-  prefix: string, 
-  options: { 
-    label?: string; 
-    isCloud?: boolean;
-    details?: ModelDetails | null;
-    size?: number;
-  } = {}
-): ProviderModelConfig {
-  const { label = "", isCloud = false, details } = options;
-  
-  // Get accurate data from /api/show
-  const contextWindow = details ? getContextLength(details.model_info, name) : 128000;
+function createModel(name: string, isCloud: boolean, details?: ModelDetails): ProviderModelConfig {
+  const contextWindow = details ? getContextLength(details.model_info) : 128000;
   const isVision = details ? hasVisionCapability(details) : false;
   const isReasoning = hasReasoningCapability(name);
   
-  // Build display name
-  const parts: string[] = [];
-  if (isCloud) parts.push("☁️");
-  if (isVision) parts.push("👁️");
+  const cloudEmoji = isCloud ? '☁️ ' : '';
+  const visionEmoji = isVision ? '👁️ ' : '';
   
-  // Add parameter size from details
-  const paramSize = details?.details?.parameter_size;
-  const sizeLabel = paramSize ? `${paramSize}` : label;
-  if (sizeLabel) parts.push(sizeLabel);
-  
-  const displayName = parts.length > 0 
-    ? `${name} (${parts.join(" ")})`
-    : name;
-
-  const modelId = isCloud ? `${name}:cloud` : name;
-  const inputTypes: ("text" | "image")[] = isVision ? ["text", "image"] : ["text"];
-
   return {
-    id: modelId,
-    name: displayName,
-    api: "openai-completions",
+    id: isCloud ? `${name}:cloud` : name,
+    name: `${cloudEmoji}${visionEmoji}${name}`,
+    api: 'openai-completions',
     reasoning: isReasoning,
-    input: inputTypes,
+    input: isVision ? ['text', 'image'] : ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow,
-    maxTokens: Math.min(8192, Math.floor(contextWindow / 16)), // Reasonable default
+    maxTokens: 8192,
   };
 }
 
 // ============================================================================
-// MODEL FETCHING (with accurate details)
+// FETCH MODELS
 // ============================================================================
 
 async function fetchLocalModels(): Promise<ProviderModelConfig[]> {
   try {
-    const response = await fetchWithTimeout(`${LOCAL_URL}/api/tags`, {}, 5000);
-    const data = await response.json() as { models: Array<{ name: string; size?: number }> };
+    const response = await fetch(`${CONFIG.baseUrl}/api/tags`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    const models = data.models || [];
     
-    // Fetch details for each model (in parallel)
-    const modelsWithDetails = await Promise.all(
-      data.models.map(async (m) => {
-        const details = await fetchModelDetails(m.name, LOCAL_URL);
-        return createModel(m.name, "ollama", { 
-          details,
-          size: m.size,
-          label: formatSize(m.size || 0)
-        });
-      })
-    );
-    
-    return modelsWithDetails;
-  } catch (e) {
-    console.error("[pi-ollama] Failed to fetch local models:", e);
+    const result: ProviderModelConfig[] = [];
+    for (const m of models) {
+      const details = await fetchModelDetails(m.name);
+      result.push(createModel(m.name, false, details || undefined));
+    }
+    return result;
+  } catch {
     return [];
   }
 }
 
-async function fetchCloudModels(apiKey: string): Promise<ProviderModelConfig[]> {
-  if (!apiKey) return [];
+async function fetchCloudModels(): Promise<ProviderModelConfig[]> {
+  if (!CONFIG.apiKey) return [];
   
   try {
-    const response = await fetchWithTimeout(`${CLOUD_URL}/api/tags`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    }, 5000);
+    const response = await fetch(`${CONFIG.cloudUrl}/api/tags`, {
+      headers: { Authorization: `Bearer ${CONFIG.apiKey}` },
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    const models = data.models || [];
     
-    const data = await response.json() as { models: Array<{ name: string }> };
-    
-    // Fetch details for cloud models (may not be available, but try)
-    const modelsWithDetails = await Promise.all(
-      data.models.map(async (m) => {
-        const details = await fetchModelDetails(m.name, CLOUD_URL);
-        return createModel(m.name, "ollama-cloud", { 
-          label: "cloud",
-          isCloud: true,
-          details
-        });
-      })
-    );
-    
-    return modelsWithDetails.filter(m => m.id); // Filter out failures
-  } catch (e) {
-    console.error("[pi-ollama] Failed to fetch cloud models:", e);
+    return models.map((m: any) => createModel(m.name, true));
+  } catch {
     return [];
   }
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return "";
-  const gb = bytes / (1024 * 1024 * 1024);
-  return gb >= 1 ? `(${gb.toFixed(1)}GB)` : `(${(bytes / 1024 / 1024).toFixed(0)}MB)`;
 }
 
 // ============================================================================
 // COMMANDS
 // ============================================================================
 
-async function handleStatus(ctx: any): Promise<void> {
-  const isLocalRunning = await testLocalConnection();
-  const hasApiKey = !!CONFIG.apiKey;
-  
-  const status = [
-    "🦙 Ollama Status",
-    "",
-    `Local: ${isLocalRunning ? "✅ Connected" : "❌ Not running"} (${LOCAL_URL})`,
-    `Cloud: ${hasApiKey ? "✅ API key set" : "⚠️ No API key"}`,
-    "",
-    "🔧 Commands:",
-    "/ollama-status         - Check connection",
-    "/ollama-models        - List available models",
-    "/ollama-info MODEL    - Show model details",
-    "",
-    "Features:",
-    "  • Accurate context length from /api/show",
-    "  • Vision detection from capabilities",
-    "  • Parameter size in model names",
+async function handleStatus(ctx: any) {
+  const hasLocal = await testLocalConnection();
+  const lines = [
+    '🦙 Ollama Status',
+    '',
+    `Local: ${hasLocal ? '✅ Connected' : '❌ Not running'}`,
+    `Cloud: ${CONFIG.apiKey ? '✅ API key set' : '❌ No API key'}`,
+    '',
+    `Base URL: ${CONFIG.baseUrl}`,
   ];
-  
-  ctx.ui?.notify?.(status.join("\n"), "info");
+  ctx.ui?.notify?.(lines.join('\n'), 'info');
 }
 
-async function handleModelInfo(args: string, ctx: any): Promise<void> {
-  const modelName = args.trim();
+async function handleModelInfo(args: string, ctx: any) {
+  const modelName = args.trim() || CONFIG.defaultModel;
   if (!modelName) {
-    ctx.ui?.notify?.("Usage: /ollama-info MODEL_NAME", "warning");
+    ctx.ui?.notify?.('Usage: /ollama-info MODEL_NAME', 'error');
     return;
   }
   
-  ctx.ui?.notify?.(`Fetching details for ${modelName}...`, "info");
-  
-  const details = await fetchModelDetails(modelName, LOCAL_URL);
-  
+  const details = await fetchModelDetails(modelName);
   if (!details) {
-    ctx.ui?.notify?.(`Could not fetch details for ${modelName}. Is the model pulled?`, "error");
+    ctx.ui?.notify?.(`Could not fetch details for ${modelName}`, 'error');
     return;
   }
   
-  const contextLength = getContextLength(details.model_info, modelName);
+  const contextLength = getContextLength(details.model_info);
   const isVision = hasVisionCapability(details);
-  const paramSize = details.details?.parameter_size || "Unknown";
-  const family = details.details?.family || "Unknown";
+  const paramSize = details.details?.parameter_size || 'Unknown';
+  const family = details.details?.family || 'Unknown';
   
   const lines = [
     `🦙 Model: ${modelName}`,
-    "",
-    `📊 Parameters: ${paramSize}`,
-    `🏷️  Family: ${family}`,
-    `📏 Context Length: ${contextLength.toLocaleString()} tokens`,
-    `👁️  Vision: ${isVision ? "✅ Yes" : "❌ No"}`,
-    "",
-    "Capabilities:",
-    ...(details.capabilities?.map(c => `  • ${c}`) || ["  • Unknown"]),
+    '',
+    `Family: ${family}`,
+    `Parameters: ${paramSize}`,
+    `Context: ${contextLength.toLocaleString()} tokens`,
+    `Vision: ${isVision ? '✅' : '❌'}`,
   ];
   
-  ctx.ui?.notify?.(lines.join("\n"), "info");
+  if (details.capabilities?.length) {
+    lines.push('', `Capabilities: ${details.capabilities.join(', ')}`);
+  }
+  
+  ctx.ui?.notify?.(lines.join('\n'), 'info');
 }
 
-async function handleModels(pi: ExtensionAPI, ctx: any): Promise<void> {
-  ctx.ui?.notify?.("Fetching models with accurate details...", "info");
+async function handleModels(pi: ExtensionAPI, ctx: any) {
+  const [localModels, cloudModels] = await Promise.all([fetchLocalModels(), fetchCloudModels()]);
   
-  const localModels = await fetchLocalModels();
-  const cloudModels = CONFIG.apiKey ? await fetchCloudModels(CONFIG.apiKey) : [];
-  
-  const lines = ["🦙 Available Models\n"];
+  const lines = ['🦙 Available Models', ''];
   
   if (localModels.length > 0) {
-    lines.push("📍 Local:");
+    lines.push('📍 Local:');
     localModels.forEach(m => {
-      const vision = m.input?.includes("image") ? "👁️" : "";
-      const reasoning = m.reasoning ? "🧠" : "";
-      lines.push(`  ${vision}${reasoning} ${m.name} (${m.contextWindow.toLocaleString()} ctx)`);
+      const vision = m.input?.includes('image') ? '👁️' : '';
+      lines.push(`  ${vision} ${m.name} (${m.contextWindow.toLocaleString()} ctx)`);
     });
-    lines.push("");
+    lines.push('');
   }
   
   if (cloudModels.length > 0) {
-    lines.push("☁️  Cloud:");
+    lines.push('☁️ Cloud:');
     cloudModels.forEach(m => {
-      const vision = m.input?.includes("image") ? "👁️" : "";
+      const vision = m.input?.includes('image') ? '👁️' : '';
       lines.push(`  ${vision} ${m.name} (${m.contextWindow.toLocaleString()} ctx)`);
     });
   }
   
   if (localModels.length === 0 && cloudModels.length === 0) {
-    lines.push("No models found. Ensure Ollama is running locally or set API key for cloud.");
+    lines.push('No models found. Ensure Ollama is running locally or set API key for cloud.');
   }
   
-  lines.push("");
-  lines.push("💡 Get model details: /ollama-info gemma3");
+  ctx.ui?.notify?.(lines.join('\n'), 'info');
   
-  ctx.ui?.notify?.(lines.join("\n"), "info");
-  
-  // Register with pi
+  // Register models
   const allModels = [...localModels, ...cloudModels];
   if (allModels.length > 0 && (pi as any).registerProviderModels) {
-    (pi as any).registerProviderModels("ollama", allModels);
+    (pi as any).registerProviderModels('ollama', allModels);
+    console.log(`[pi-ollama] Registered ${localModels.length} local, ${cloudModels.length} cloud models`);
   }
 }
 
@@ -487,70 +267,54 @@ async function handleModels(pi: ExtensionAPI, ctx: any): Promise<void> {
 export default function ollamaExtension(pi: ExtensionAPI) {
   loadConfig(pi);
   
-  pi.registerCommand("ollama-status", {
-    description: "Check Ollama connection status",
+  pi.registerCommand('ollama-status', {
+    description: 'Check Ollama connection status',
     handler: async (_args: string, ctx: any) => handleStatus(ctx),
   });
   
-  pi.registerCommand("ollama-info", {
-    description: "Show model details from /api/show",
+  pi.registerCommand('ollama-info', {
+    description: 'Show model details',
     handler: async (args: string, ctx: any) => handleModelInfo(args, ctx),
   });
   
-  pi.registerCommand("ollama-models", {
-    description: "List available Ollama models",
+  pi.registerCommand('ollama-models', {
+    description: 'List available models',
     handler: async (_args: string, ctx: any) => handleModels(pi, ctx),
   });
   
-  pi.registerCommand("ollama", {
-    description: "Ollama management",
+  pi.registerCommand('ollama', {
+    description: 'Ollama management',
     handler: async (args: string, ctx: any) => {
-      const [sub, ...rest] = args.trim().split(/\s+/);
-      const restArgs = rest.join(" ");
+      const [sub] = args.trim().split(/\s+/);
       switch (sub) {
-        case "status": return handleStatus(ctx);
-        case "info": return handleModelInfo(restArgs, ctx);
-        case "models": return handleModels(pi, ctx);
+        case 'status': return handleStatus(ctx);
+        case 'info': return handleModelInfo(args.slice(4).trim(), ctx);
+        case 'models': return handleModels(pi, ctx);
         default:
           ctx.ui?.notify?.([
-            "🦙 Ollama Commands",
-            "",
-            "/ollama-status         - Check connection",
-            "/ollama-info MODEL    - Show model details",
-            "/ollama-models        - List models",
-            "",
-            "Uses /api/show for accurate:",
-            "  • Context length",
-            "  • Vision capabilities", 
-            "  • Model family",
-          ].join("\n"), "info");
+            '🦙 Ollama Commands',
+            '',
+            '/ollama status  - Check connection',
+            '/ollama info MODEL  - Show model details',
+            '/ollama models  - List models',
+          ].join('\n'), 'info');
       }
     },
   });
   
-  // Auto-register models on startup (local + cloud)
-  const apiKey = getOllamaApiKey();
-  Promise.all([fetchLocalModels(), fetchCloudModels(apiKey)]).then(([local, cloud]) => {
-    const allModels = [...local, ...cloud];
-    if (allModels.length > 0 && (pi as any).registerProviderModels) {
-      (pi as any).registerProviderModels("ollama", allModels);
-      console.log(`[pi-ollama] Registered ${local.length} local, ${cloud.length} cloud models`);
-    } else {
-      console.log("[pi-ollama] No models found. Ensure Ollama is running or set cloud API key.");
-    }
-  });
+  // Register models on startup
+  handleModels(pi, { ui: { notify: () => {} } });
   
-  console.log("[pi-ollama] Extension loaded");
-  console.log("[pi-ollama] Uses /api/show for accurate context length & capabilities");
+  console.log('[pi-ollama] Extension loaded');
 }
 
-// Re-export for TypeScript
-export { 
-  createModel, 
-  fetchLocalModels, 
-  fetchCloudModels, 
+// Re-exports for TypeScript
+export {
+  fetchLocalModels,
+  fetchCloudModels,
   fetchModelDetails,
   getContextLength,
   hasVisionCapability,
   hasReasoningCapability,
+  createModel,
 };
