@@ -259,10 +259,17 @@ async function handleModels(pi: ExtensionAPI, ctx: any) {
   
   ctx.ui?.notify?.(lines.join('\n'), 'info');
   
-  // Register models
+  // Register models using official pi API
+  // Pi requires apiKey, so use dummy for local
+  const effectiveApiKey = CONFIG.apiKey || 'ollama-local';
   const allModels = [...localModels, ...cloudModels];
-  if (allModels.length > 0 && (pi as any).registerProviderModels) {
-    (pi as any).registerProviderModels('ollama', allModels);
+  if (allModels.length > 0) {
+    pi.registerProvider('ollama', {
+      baseUrl: CONFIG.baseUrl,
+      apiKey: effectiveApiKey,
+      api: 'openai-completions',
+      models: allModels,
+    });
     console.log(`[pi-ollama] Registered ${localModels.length} local, ${cloudModels.length} cloud models`);
   }
 }
@@ -271,7 +278,7 @@ async function handleModels(pi: ExtensionAPI, ctx: any) {
 // EXTENSION EXPORT
 // ============================================================================
 
-export default function ollamaExtension(pi: ExtensionAPI) {
+export default async function ollamaExtension(pi: ExtensionAPI) {
   loadConfig(pi);
   
   pi.registerCommand('ollama-status', {
@@ -309,8 +316,15 @@ export default function ollamaExtension(pi: ExtensionAPI) {
     },
   });
   
-  // Register models on startup
-  handleModels(pi, { ui: { notify: () => {} } });
+  console.log(`[pi-ollama] Config loaded: baseUrl=${CONFIG.baseUrl}, hasApiKey=${!!CONFIG.apiKey}`);
+  
+  // Register models on startup with retry
+  console.log('[pi-ollama] Fetching models...');
+  try {
+    await handleModels(pi, { ui: { notify: () => {} } });
+  } catch (err) {
+    console.error('[pi-ollama] Error fetching models:', err);
+  }
   
   console.log('[pi-ollama] Extension loaded');
 }
