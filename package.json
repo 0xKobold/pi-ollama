@@ -1,6 +1,6 @@
 {
   "name": "@0xkobold/pi-ollama",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Ollama extension for pi-coding-agent. Unified local + cloud Ollama support with model management",
   "keywords": ["pi-package", "ollama", "llm", "local-ai"],
   "author": "0xKobold",
