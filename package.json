@@ -29,5 +29,15 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xKobold/0xKobolds.git",
+    "directory": "packages/pi-ollama"
+  },
+  "bugs": {
+    "url": "https://github.com/0xKobold/0xKobolds/issues"
+  },
+  "homepage": "https://github.com/0xKobold/0xKobolds/tree/main/packages/pi-ollama#readme"
+}
 }
