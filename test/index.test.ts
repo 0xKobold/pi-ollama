@@ -232,12 +232,28 @@ describe("pi-ollama v0.1.0", () => {
   });
 
   describe("Error Handling", () => {
-    test("should handle null model info gracefully", async () => {
+    test("should handle null model info gracefully with name fallback", async () => {
       const { getContextLength } = await import("../src/index.ts");
       
       // @ts-ignore - testing null handling
-      const result = getContextLength(null);
-      expect(result).toBe(128000); // default fallback
+      const result = getContextLength(null, "kimi-k2.5:cloud");
+      expect(result).toBe(256000); // Should detect from name even with null info
+    });
+
+    test("should detect kimi from name when model_info empty", async () => {
+      const { getContextLength } = await import("../src/index.ts");
+      
+      const emptyInfo = {};
+      const result = getContextLength(emptyInfo, "kimi-k2.5:cloud");
+      expect(result).toBe(256000);
+    });
+
+    test("should detect minimax from name", async () => {
+      const { getContextLength } = await import("../src/index.ts");
+      
+      const emptyInfo = {};
+      const result = getContextLength(emptyInfo, "minimax-m2.5:cloud");
+      expect(result).toBe(256000);
     });
 
     test("should handle undefined model info", async () => {

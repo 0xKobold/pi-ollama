@@ -125,16 +125,31 @@ async function fetchModelDetails(modelName: string, baseUrl: string = LOCAL_URL)
   }
 }
 
-function getContextLength(modelInfo: ModelDetails["model_info"]): number {
-  if (!modelInfo) return 128000;
+function getContextLength(modelInfo: ModelDetails["model_info"], modelName?: string): number {
+  // Handle null/undefined modelInfo - use name detection
+  if (!modelInfo) {
+    const modelId = (modelName || "").toLowerCase();
+    if (modelId.includes("kimi")) return 256000;
+    if (modelId.includes("claude")) return 200000;
+    if (modelId.includes("gpt-4") || modelId.includes("4o")) return 128000;
+    if (modelId.includes("mixtral")) return 32768;
+    if (modelId.includes("qwen3")) return 262144;
+    if (modelId.includes("gptoss")) return 131072;
+    if (modelId.includes("minimax")) return 256000;
+    if (modelId.includes("nomic")) return 2048;
+    return 128000; // Default fallback
+  }
   
+  // Try exact keys first
   // Known model architectures with their context length keys
   const contextKeys = [
+    // Local models (have full metadata)
     "general.context_length",
     "gemma3.context_length", 
     "llama.context_length",
     "mistral.context_length",
     "qwen2.context_length",
+    "qwen3moe.context_length",      // Qwen3: 262K
     "phi3.context_length",
     "kimi.context_length",
     "kimi2.context_length",
@@ -142,6 +157,7 @@ function getContextLength(modelInfo: ModelDetails["model_info"]): number {
     "deepseek.context_length",
     "claude.context_length",
     "gpt.context_length",
+    "gptoss.context_length",        // GPT-OSS: 128K
     "yi.context_length",
     "command.context_length",
     "dolphin.context_length",
@@ -154,6 +170,9 @@ function getContextLength(modelInfo: ModelDetails["model_info"]): number {
     "openchat.context_length",
     "zephyr.context_length",
     "neural.context_length",
+    "nomic-bert.context_length",    // Nomic: 2K
+    "minimax.context_length",       // Minimax: varies
+    "embedding_length",             // Sometimes used for embed models
   ];
   
   // Try known keys first
@@ -175,7 +194,9 @@ function getContextLength(modelInfo: ModelDetails["model_info"]): number {
   }
   
   // Architecture-specific defaults if we can detect the model family
-  const modelId = JSON.stringify(modelInfo).toLowerCase();
+  // Check model name first (for cloud models with no metadata)
+  const searchId = (modelName || "") + " " + JSON.stringify(modelInfo);
+  const modelId = searchId.toLowerCase();
   
   if (modelId.includes("kimi") || modelId.includes("k2.5")) {
     return 256000; // Kimi K2.5: 256K context
@@ -199,6 +220,22 @@ function getContextLength(modelInfo: ModelDetails["model_info"]): number {
   
   if (modelId.includes("llama3.1") || modelId.includes("llama3.2")) {
     return 128000; // Llama 3.1/3.2: 128K context
+  }
+  
+  if (modelId.includes("qwen3")) {
+    return 262144; // Qwen3: 256K context
+  }
+  
+  if (modelId.includes("gps-oss")) {
+    return 131072; // GPT-OSS: 128K context
+  }
+  
+  if (modelId.includes("minimax")) {
+    return 256000; // Minimax: assume 256K
+  }
+  
+  if (modelId.includes("nomic")) {
+    return 2048; // Nomic embed: 2K context
   }
   
   return 128000; // Default fallback
@@ -241,7 +278,7 @@ function createModel(
   const { label = "", isCloud = false, details } = options;
   
   // Get accurate data from /api/show
-  const contextWindow = details ? getContextLength(details.model_info) : 128000;
+  const contextWindow = details ? getContextLength(details.model_info, name) : 128000;
   const isVision = details ? hasVisionCapability(details) : false;
   const isReasoning = hasReasoningCapability(name);
   
@@ -381,7 +418,7 @@ async function handleModelInfo(args: string, ctx: any): Promise<void> {
     return;
   }
   
-  const contextLength = getContextLength(details.model_info);
+  const contextLength = getContextLength(details.model_info, modelName);
   const isVision = hasVisionCapability(details);
   const paramSize = details.details?.parameter_size || "Unknown";
   const family = details.details?.family || "Unknown";
