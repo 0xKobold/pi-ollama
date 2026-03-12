@@ -128,7 +128,7 @@ async function fetchModelDetails(modelName: string, baseUrl: string = LOCAL_URL)
 function getContextLength(modelInfo: ModelDetails["model_info"]): number {
   if (!modelInfo) return 128000;
   
-  // Try common context length keys
+  // Known model architectures with their context length keys
   const contextKeys = [
     "general.context_length",
     "gemma3.context_length", 
@@ -136,13 +136,69 @@ function getContextLength(modelInfo: ModelDetails["model_info"]): number {
     "mistral.context_length",
     "qwen2.context_length",
     "phi3.context_length",
+    "kimi.context_length",
+    "kimi2.context_length",
+    "kimi2_5.context_length",
+    "deepseek.context_length",
+    "claude.context_length",
+    "gpt.context_length",
+    "yi.context_length",
+    "command.context_length",
+    "dolphin.context_length",
+    "solar.context_length",
+    "mixtral.context_length",
+    "codellama.context_length",
+    "vicuna.context_length",
+    "starcoder.context_length",
+    "falcon.context_length",
+    "openchat.context_length",
+    "zephyr.context_length",
+    "neural.context_length",
   ];
   
+  // Try known keys first
   for (const key of contextKeys) {
     const value = modelInfo[key];
     if (typeof value === "number" && value > 0) {
       return value;
     }
+  }
+  
+  // Fallback: search for any key containing "context_length"
+  for (const key of Object.keys(modelInfo)) {
+    if (key.includes("context_length")) {
+      const value = modelInfo[key];
+      if (typeof value === "number" && value > 0) {
+        return value;
+      }
+    }
+  }
+  
+  // Architecture-specific defaults if we can detect the model family
+  const modelId = JSON.stringify(modelInfo).toLowerCase();
+  
+  if (modelId.includes("kimi") || modelId.includes("k2.5")) {
+    return 256000; // Kimi K2.5: 256K context
+  }
+  
+  if (modelId.includes("claude") || modelId.includes("haiku") || modelId.includes("sonnet")) {
+    return 200000; // Claude models: 200K context
+  }
+  
+  if (modelId.includes("4o") || modelId.includes("gpt-4")) {
+    return 128000; // GPT-4: 128K context
+  }
+  
+  if (modelId.includes("mixtral") || modelId.includes("mistral-large")) {
+    return 32768; // Mixtral: 32K context
+  }
+  
+  if (modelId.includes("gemma3")) {
+    return 131072; // Gemma3: 128K context
+  }
+  
+  if (modelId.includes("llama3.1") || modelId.includes("llama3.2")) {
+    return 128000; // Llama 3.1/3.2: 128K context
   }
   
   return 128000; // Default fallback

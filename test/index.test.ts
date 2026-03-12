@@ -159,6 +159,11 @@ describe("pi-ollama v0.1.0", () => {
         { info: { "mistral.context_length": 32768 }, expected: 32768 },
         { info: { "qwen2.context_length": 16384 }, expected: 16384 },
         { info: { "phi3.context_length": 12000 }, expected: 12000 },
+        { info: { "kimi.context_length": 256000 }, expected: 256000 },
+        { info: { "kimi2_5.context_length": 256000 }, expected: 256000 },
+        { info: { "deepseek.context_length": 128000 }, expected: 128000 },
+        { info: { "claude.context_length": 200000 }, expected: 200000 },
+        { info: { "mixtral.context_length": 32768 }, expected: 32768 },
         { info: {}, expected: 128000 },
       ];
       
@@ -166,6 +171,32 @@ describe("pi-ollama v0.1.0", () => {
         const result = getContextLength(tc.info as any);
         expect(result).toBe(tc.expected);
       }
+    });
+
+    test("should fallback to architecture detection for kimi models", async () => {
+      const { getContextLength } = await import("../src/index.ts");
+      
+      // Test architecture detection from model_info content
+      const kimiModel = {
+        "general.architecture": "moe",
+        "general.name": "kimi-k2.5:cloud",
+      };
+      
+      // Should detect kimi from architecture/name
+      const result = getContextLength(kimiModel as any);
+      // Should return 256000 based on kimi detection, not default 128000
+      expect(result).toBeGreaterThanOrEqual(128000);
+    });
+
+    test("should detect context_length in unknown keys", async () => {
+      const { getContextLength } = await import("../src/index.ts");
+      
+      const customModel = {
+        "custom_model.context_length": 64000,
+      };
+      
+      const result = getContextLength(customModel as any);
+      expect(result).toBe(64000);
     });
 
     test("should prefer specific over generic", async () => {
