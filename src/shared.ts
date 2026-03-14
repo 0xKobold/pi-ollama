@@ -1,11 +1,9 @@
 /**
- * Shared Ollama Utilities
+ * Shared Ollama Utilities - OpenAI Compatible
  *
  * DRY: Shared between pi-ollama extension and internal app usage
- * This module has no pi-coding-agent dependencies - pure Ollama client logic
+ * Uses OpenAI-compatible endpoints (/v1) for pi-coding-agent compatibility
  */
-
-import { Ollama } from 'ollama';
 
 // ============================================================================
 // CONFIGURATION
@@ -39,23 +37,28 @@ export function loadConfigFromEnv(): Partial<OllamaConfig> {
 // ============================================================================
 
 export interface OllamaClients {
-  local: Ollama;
-  cloud: Ollama | null;
+  local: { baseUrl: string; apiKey?: string };
+  cloud: { baseUrl: string; apiKey?: string } | null;
   hasApiKey: boolean;
 }
 
 /**
  * Create Ollama clients based on config
+ * Returns config objects for fetch-based API calls
  */
 export function createClients(config: Partial<OllamaConfig> = {}): OllamaClients {
   const merged = { ...DEFAULT_CONFIG, ...config };
 
-  const local = new Ollama({ host: merged.baseUrl });
+  const local = {
+    baseUrl: merged.baseUrl.replace(/\/$/, ''), // Remove trailing slash
+    apiKey: undefined,
+  };
+
   const cloud = merged.apiKey
-    ? new Ollama({
-        host: merged.cloudUrl,
-        headers: { Authorization: `Bearer ${merged.apiKey}` },
-      })
+    ? {
+        baseUrl: merged.cloudUrl.replace(/\/$/, ''),
+        apiKey: merged.apiKey,
+      }
     : null;
 
   return {
@@ -68,10 +71,12 @@ export function createClients(config: Partial<OllamaConfig> = {}): OllamaClients
 /**
  * Detect if local Ollama is running
  */
-export async function isLocalRunning(client: Ollama): Promise<boolean> {
+export async function isLocalRunning(client: { baseUrl: string }): Promise<boolean> {
   try {
-    await client.list();
-    return true;
+    const res = await fetch(`${client.baseUrl}/api/tags`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
   } catch {
     return false;
   }
@@ -85,7 +90,7 @@ export function getClientForModel(
   modelId: string,
   clients: OllamaClients,
   cloudOnly: boolean = false
-): { client: Ollama; isCloud: boolean } {
+): { client: { baseUrl: string; apiKey?: string }; isCloud: boolean } {
   const isCloudModel = modelId.includes(':cloud');
 
   if ((isCloudModel || cloudOnly) && clients.cloud) {
@@ -103,7 +108,7 @@ export function getModelName(modelId: string): string {
 }
 
 // ============================================================================
-// MODEL DETECTION
+// MODEL DETECTION (Ollama-specific /api/show)
 // ============================================================================
 
 export interface ModelDetails {
@@ -118,23 +123,27 @@ export interface ModelDetails {
 }
 
 /**
- * Fetch detailed model info from /api/show
+ * Fetch detailed model info from Ollama's /api/show
+ * Note: This is Ollama-specific, not OpenAI-compatible
  */
 export async function fetchModelDetails(
-  client: Ollama,
+  client: { baseUrl: string; apiKey?: string },
   modelName: string
 ): Promise<ModelDetails | null> {
   try {
-    const info = await client.show({ model: modelName });
-    return {
-      name: modelName,
-      model_info: info.model_info,
-      details: {
-        parameter_size: info.details?.parameter_size,
-        family: info.details?.family,
-        quantization_level: info.details?.quantization_level,
-      },
-    };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (client.apiKey) {
+      headers['Authorization'] = `Bearer ${client.apiKey}`;
+    }
+
+    const res = await fetch(`${client.baseUrl}/api/show`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: modelName }),
+    });
+
+    if (!res.ok) return null;
+    return await res.json();
   } catch {
     return null;
   }
@@ -175,7 +184,7 @@ export function hasReasoningCapability(name: string): boolean {
 }
 
 // ============================================================================
-// MODEL LISTING
+// MODEL LISTING (OpenAI-compatible /v1/models)
 // ============================================================================
 
 export interface ListedModel {
@@ -185,40 +194,70 @@ export interface ListedModel {
 }
 
 /**
- * List all available models from local and cloud
+ * List all available models using OpenAI-compatible /v1/models
  */
-export async function listAllModels(clients: OllamaClients): Promise<ListedModel[]> {
+export async function listAllModels(
+  clients: OllamaClients
+): Promise<ListedModel[]> {
   const models: ListedModel[] = [];
 
-  // Try local first
+  // Try local first using OpenAI endpoint
   try {
-    const localModels = await clients.local.list();
-    for (const m of localModels.models || []) {
-      const details = await fetchModelDetails(clients.local, m.name);
-      models.push({
-        name: m.name,
-        isCloud: false,
-        details: details || undefined,
-      });
+    const res = await fetch(`${clients.local.baseUrl}/v1/models`);
+    if (res.ok) {
+      const data = await res.json();
+      for (const m of data.data || []) {
+        // Get detailed info using Ollama-specific endpoint
+        const details = await fetchModelDetails(clients.local, m.id);
+        models.push({
+          name: m.id,
+          isCloud: false,
+          details: details || undefined,
+        });
+      }
     }
   } catch {
-    // Local not available
+    // Fallback to Ollama-native endpoint
+    try {
+      const res = await fetch(`${clients.local.baseUrl}/api/tags`);
+      if (res.ok) {
+        const data = await res.json();
+        for (const m of data.models || []) {
+          const details = await fetchModelDetails(clients.local, m.name);
+          models.push({
+            name: m.name,
+            isCloud: false,
+            details: details || undefined,
+          });
+        }
+      }
+    } catch {
+      // Local not available
+    }
   }
 
   // Try cloud if we have API key
   if (clients.cloud) {
     try {
-      const cloudModels = await clients.cloud.list();
-      for (const m of cloudModels.models || []) {
-        // Skip if already have locally
-        if (models.some((lm) => lm.name === m.name)) continue;
+      const headers: Record<string, string> = {};
+      if (clients.cloud.apiKey) {
+        headers['Authorization'] = `Bearer ${clients.cloud.apiKey}`;
+      }
 
-        const details = await fetchModelDetails(clients.cloud, m.name);
-        models.push({
-          name: `${m.name}:cloud`,
-          isCloud: true,
-          details: details || undefined,
-        });
+      const res = await fetch(`${clients.cloud.baseUrl}/v1/models`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        for (const m of data.data || []) {
+          // Skip if already have locally
+          if (models.some((lm) => lm.name === m.id)) continue;
+
+          const details = await fetchModelDetails(clients.cloud, m.id);
+          models.push({
+            name: `${m.id}:cloud`,
+            isCloud: true,
+            details: details || undefined,
+          });
+        }
       }
     } catch {
       // Cloud not available
@@ -229,7 +268,7 @@ export async function listAllModels(clients: OllamaClients): Promise<ListedModel
 }
 
 // ============================================================================
-// CHAT UTILITIES
+// CHAT UTILITIES (OpenAI-compatible /v1/chat/completions)
 // ============================================================================
 
 export interface ChatMessage {
@@ -256,51 +295,112 @@ export interface ChatResult {
 }
 
 /**
- * Non-streaming chat completion
+ * Non-streaming chat completion using OpenAI-compatible endpoint
  */
 export async function chat(
-  client: Ollama,
+  client: { baseUrl: string; apiKey?: string },
   options: ChatOptions
 ): Promise<ChatResult> {
-  const response = await client.chat({
-    model: options.model,
-    messages: options.messages,
-    stream: false,
-    options: {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (client.apiKey) {
+    headers['Authorization'] = `Bearer ${client.apiKey}`;
+  }
+
+  const res = await fetch(`${client.baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: options.model,
+      messages: options.messages,
       temperature: options.temperature ?? 0.7,
-      num_predict: options.maxTokens ?? 4096,
-    },
+      max_tokens: options.maxTokens ?? 4096,
+      stream: false,
+    }),
   });
 
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`Ollama chat error: ${err}`);
+  }
+
+  const data = await res.json();
+
   return {
-    content: response.message?.content ?? '',
+    content: data.choices?.[0]?.message?.content ?? '',
     usage: {
-      inputTokens: (response as any).prompt_eval_count ?? 0,
-      outputTokens: (response as any).eval_count ?? 0,
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
     },
   };
 }
 
 /**
- * Streaming chat completion
+ * Streaming chat completion using OpenAI-compatible endpoint
  */
 export async function* chatStream(
-  client: Ollama,
+  client: { baseUrl: string; apiKey?: string },
   options: ChatOptions
 ): AsyncGenerator<string, void, unknown> {
-  const stream = await client.chat({
-    model: options.model,
-    messages: options.messages,
-    stream: true,
-    options: {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (client.apiKey) {
+    headers['Authorization'] = `Bearer ${client.apiKey}`;
+  }
+
+  const res = await fetch(`${client.baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: options.model,
+      messages: options.messages,
       temperature: options.temperature ?? 0.7,
-      num_predict: options.maxTokens ?? 4096,
-    },
+      max_tokens: options.maxTokens ?? 4096,
+      stream: true,
+    }),
   });
 
-  for await (const chunk of stream) {
-    if (chunk.message?.content) {
-      yield chunk.message.content;
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`Ollama stream error: ${err}`);
+  }
+
+  if (!res.body) {
+    throw new Error('No response body');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n').filter((line) => line.trim());
+
+      for (const line of lines) {
+        // Skip SSE prefix
+        const dataLine = line.startsWith('data: ') ? line.slice(6) : line;
+        if (dataLine === '[DONE]') continue;
+
+        try {
+          const data = JSON.parse(dataLine);
+          const content = data.choices?.[0]?.delta?.content;
+          if (content) {
+            yield content;
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
 }
