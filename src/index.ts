@@ -22,24 +22,30 @@ let CONFIG = { ...DEFAULT_CONFIG };
 function loadConfig(pi: ExtensionAPI) {
   // Reset to defaults first
   CONFIG = { ...DEFAULT_CONFIG };
-  
+
   // Try pi.settings first
   const settings = (pi as any).settings;
   if (settings?.get) {
-    CONFIG.baseUrl = settings.get("ollama.baseUrl") || CONFIG.baseUrl;
-    CONFIG.apiKey = settings.get("ollama.apiKey") || CONFIG.apiKey;
-    CONFIG.defaultModel = settings.get("ollama.defaultModel") || CONFIG.defaultModel;
-    CONFIG.customModels = settings.get("ollama.customModels") || CONFIG.customModels;
+    const baseUrl = settings.get("ollama.baseUrl");
+    const apiKey = settings.get("ollama.apiKey");
+    const defaultModel = settings.get("ollama.defaultModel");
+    const customModels = settings.get("ollama.customModels");
+
+    // Only override if value is actually set (not undefined/null)
+    if (baseUrl != null) CONFIG.baseUrl = baseUrl;
+    if (apiKey != null) CONFIG.apiKey = apiKey;
+    if (defaultModel != null) CONFIG.defaultModel = defaultModel;
+    if (customModels != null) CONFIG.customModels = customModels;
   }
-  
+
   // Environment override (runtime)
   if (typeof process !== 'undefined') {
-    CONFIG.apiKey = process.env.OLLAMA_API_KEY || CONFIG.apiKey;
-    CONFIG.baseUrl = process.env.OLLAMA_BASE_URL || CONFIG.baseUrl;
-    CONFIG.defaultModel = process.env.OLLAMA_DEFAULT_MODEL || CONFIG.defaultModel;
+    if (process.env.OLLAMA_API_KEY) CONFIG.apiKey = process.env.OLLAMA_API_KEY;
+    if (process.env.OLLAMA_BASE_URL) CONFIG.baseUrl = process.env.OLLAMA_BASE_URL;
+    if (process.env.OLLAMA_DEFAULT_MODEL) CONFIG.defaultModel = process.env.OLLAMA_DEFAULT_MODEL;
   }
-  
-  console.log(`[pi-ollama] Config: baseUrl=${CONFIG.baseUrl}, hasApiKey=${!!CONFIG.apiKey}`);
+
+  console.log(`[pi-ollama] Config: baseUrl=${CONFIG.baseUrl}, cloudUrl=${CONFIG.cloudUrl}, hasApiKey=${!!CONFIG.apiKey}`);
 }
 
 // ============================================================================
@@ -265,7 +271,7 @@ async function handleModels(pi: ExtensionAPI, ctx: any) {
   const allModels = [...localModels, ...cloudModels];
   if (allModels.length > 0) {
     pi.registerProvider('ollama', {
-      baseUrl: CONFIG.baseUrl,
+      baseUrl: `${CONFIG.baseUrl}/v1`,  // OpenAI-compatible endpoint
       apiKey: effectiveApiKey,
       api: 'openai-completions',
       models: allModels,
