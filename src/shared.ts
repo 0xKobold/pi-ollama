@@ -151,25 +151,51 @@ export async function fetchModelDetails(
 
 /**
  * Extract context length from model info
+ * Optionally accepts model name for fallback detection
  */
-export function getContextLength(modelInfo: Record<string, any> | undefined): number {
-  if (!modelInfo) return 128000;
-
-  const keys = Object.keys(modelInfo);
-  for (const key of keys) {
-    if (key.endsWith('.context_length') && typeof modelInfo[key] === 'number') {
-      return modelInfo[key];
+export function getContextLength(modelInfo: Record<string, any> | undefined, modelName?: string): number {
+  // Try to get from model_info first
+  if (modelInfo) {
+    const keys = Object.keys(modelInfo);
+    for (const key of keys) {
+      if (key.endsWith('.context_length') && typeof modelInfo[key] === 'number') {
+        return modelInfo[key];
+      }
     }
   }
+
+  // Fallback: detect from model name
+  if (modelName) {
+    const lower = modelName.toLowerCase();
+    // Kimi models typically have 256k context
+    if (lower.includes('kimi')) return 256000;
+    // Minimax models
+    if (lower.includes('minimax')) return 256000;
+  }
+
   return 128000;
 }
 
 /**
  * Check if model has vision capability
+ * Checks capabilities array and model_info for vision indicators
  */
 export function hasVisionCapability(details: ModelDetails): boolean {
+  // Check capabilities array
   if (details.capabilities?.includes('vision')) return true;
   if (details.capabilities?.includes('image')) return true;
+
+  // Check model_info for vision indicators
+  if (details.model_info) {
+    // CLIP vision encoder indicates vision capability
+    if (details.model_info['clip.has_vision_encoder'] === true) return true;
+    // Vision-specific architectures
+    const arch = details.model_info['general.architecture'];
+    if (arch && ['llava', 'bakllava', 'moondream'].some(a => arch.toLowerCase().includes(a))) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -178,7 +204,7 @@ export function hasVisionCapability(details: ModelDetails): boolean {
  */
 export function hasReasoningCapability(name: string): boolean {
   const lower = name.toLowerCase();
-  return ['coder', 'r1', 'deepseek', 'kimi', 'think', 'reason'].some((k) =>
+  return ['coder', 'code', 'r1', 'deepseek', 'kimi', 'think', 'reason'].some((k) =>
     lower.includes(k)
   );
 }
