@@ -1,6 +1,6 @@
 {
   "name": "@0xkobold/pi-ollama",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Ollama extension for pi-coding-agent. Unified local + cloud Ollama support with model management",
   "keywords": [
     "pi-package",
@@ -12,6 +12,16 @@
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./shared": {
+      "import": "./dist/shared.js",
+      "types": "./dist/shared.d.ts"
+    }
+  },
   "files": [
     "dist/",
     "README.md"

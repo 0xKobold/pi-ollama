@@ -1,26 +1,9 @@
 /**
- * Pi Ollama Extension - Working Version
+ * Pi Ollama Extension - Using Shared Utilities
  *
- * Uses same config pattern as local extension
+ * Uses OpenAI-compatible endpoints via shared.ts for pi-coding-agent compatibility
  */
-import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
-interface ModelDetails {
-    name: string;
-    capabilities?: string[];
-    model_info?: Record<string, any>;
-    details?: {
-        parameter_size?: string;
-        family?: string;
-        quantization_level?: string;
-    };
-}
-declare function fetchModelDetails(modelName: string): Promise<ModelDetails | null>;
-declare function getContextLength(modelInfo: Record<string, any> | undefined): number;
-declare function hasVisionCapability(details: ModelDetails): boolean;
-declare function hasReasoningCapability(name: string): boolean;
-declare function createModel(name: string, isCloud: boolean, details?: ModelDetails): ProviderModelConfig;
-declare function fetchLocalModels(): Promise<ProviderModelConfig[]>;
-declare function fetchCloudModels(): Promise<ProviderModelConfig[]>;
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+export { loadConfigFromEnv, createClients, isLocalRunning, getClientForModel, getModelName, fetchModelDetails, getContextLength, hasVisionCapability, hasReasoningCapability, listAllModels, chat, chatStream, type OllamaConfig, type OllamaClients, type ModelDetails, type ListedModel, type ChatMessage, type ChatOptions, type ChatUsage, type ChatResult, } from './shared.js';
 export default function ollamaExtension(pi: ExtensionAPI): Promise<void>;
-export { fetchLocalModels, fetchCloudModels, fetchModelDetails, getContextLength, hasVisionCapability, hasReasoningCapability, createModel, };
 //# sourceMappingURL=index.d.ts.map
