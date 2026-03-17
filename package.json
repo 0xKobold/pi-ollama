@@ -39,7 +39,8 @@
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": ">=0.6.0",
-    "@sinclair/typebox": ">=0.32.0"
+    "@sinclair/typebox": ">=0.32.0",
+    "ollama": "^0.6.3"
   },
   "repository": {
     "type": "git",

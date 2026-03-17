@@ -1,12 +1,4 @@
 /**
-<<<<<<< Updated upstream
- * Pi Ollama Extension - Using Shared Utilities
- *
- * Uses OpenAI-compatible endpoints via shared.ts for pi-coding-agent compatibility
- */
-
-import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
-=======
  * Pi Ollama Extension - Using Official ollama-js Client
  *
  * Uses the official Ollama JavaScript client for proper cloud/local API handling
@@ -15,16 +7,12 @@ import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-
 
 import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
 import { Ollama } from 'ollama';
->>>>>>> Stashed changes
 import {
   loadConfigFromEnv,
   createClients,
   isLocalRunning,
-<<<<<<< Updated upstream
-=======
   getClientForModel,
   getModelName,
->>>>>>> Stashed changes
   fetchModelDetails,
   getContextLength,
   hasVisionCapability,
@@ -33,6 +21,7 @@ import {
   type OllamaConfig,
   type OllamaClients,
   type ModelDetails,
+  type ListedModel,
 } from './shared.js';
 
 // Re-export shared utilities for consumers
@@ -47,33 +36,17 @@ export {
   hasVisionCapability,
   hasReasoningCapability,
   listAllModels,
-<<<<<<< Updated upstream
-  chat,
-  chatStream,
-=======
->>>>>>> Stashed changes
   type OllamaConfig,
   type OllamaClients,
   type ModelDetails,
   type ListedModel,
-<<<<<<< Updated upstream
-  type ChatMessage,
-  type ChatOptions,
-  type ChatUsage,
-  type ChatResult,
-=======
->>>>>>> Stashed changes
 } from './shared.js';
 
 // Default config
 const DEFAULT_CONFIG: OllamaConfig = {
   baseUrl: "http://localhost:11434",
   cloudUrl: "https://ollama.com",
-<<<<<<< Updated upstream
-  apiKey: undefined,
-=======
   apiKey: "",
->>>>>>> Stashed changes
 };
 
 let CONFIG: OllamaConfig = { ...DEFAULT_CONFIG };
@@ -87,30 +60,14 @@ function loadConfig(pi: ExtensionAPI) {
   // Try pi.settings first
   const settings = (pi as any).settings;
   if (settings?.get) {
-<<<<<<< Updated upstream
-    const baseUrl = settings.get("ollama.baseUrl");
-    const apiKey = settings.get("ollama.apiKey");
-
-    // Only override if value is actually set (not undefined/null)
-    if (baseUrl != null) CONFIG.baseUrl = baseUrl;
-    if (apiKey != null) CONFIG.apiKey = apiKey;
-=======
-    CONFIG.baseUrl = settings.get("ollama.baseUrl") || CONFIG.baseUrl;
-    CONFIG.cloudUrl = settings.get("ollama.cloudUrl") || CONFIG.cloudUrl;
-    CONFIG.apiKey = settings.get("ollama.apiKey") || CONFIG.apiKey;
->>>>>>> Stashed changes
+    CONFIG.baseUrl = settings.get("ollamaBaseUrl") || CONFIG.baseUrl;
+    CONFIG.cloudUrl = settings.get("ollamaCloudUrl") || CONFIG.cloudUrl;
+    CONFIG.apiKey = settings.get("ollamaApiKey") || CONFIG.apiKey;
   }
 
   // Environment override (runtime)
   if (typeof process !== 'undefined') {
-<<<<<<< Updated upstream
-    const envConfig = loadConfigFromEnv();
-    if (envConfig.baseUrl) CONFIG.baseUrl = envConfig.baseUrl;
-    if (envConfig.cloudUrl) CONFIG.cloudUrl = envConfig.cloudUrl;
-    if (envConfig.apiKey) CONFIG.apiKey = envConfig.apiKey;
-=======
     CONFIG = { ...CONFIG, ...loadConfigFromEnv() };
->>>>>>> Stashed changes
   }
 
   // Initialize clients
@@ -124,9 +81,19 @@ function loadConfig(pi: ExtensionAPI) {
 // ============================================================================
 
 function createModel(name: string, isCloud: boolean, details?: ModelDetails): ProviderModelConfig {
-  const contextWindow = details ? getContextLength(details.model_info) : 128000;
+  // Get context window from model details (which contains model_info), or fall back to model name patterns
+  // getContextLength handles both nested model_info and direct model_info objects
+  const contextWindow = getContextLength(details || null, name);
   const isVision = details ? hasVisionCapability(details) : false;
   const isReasoning = hasReasoningCapability(name);
+
+  // Debug: log context window detection
+  console.log(`[pi-ollama] Model ${name}: contextWindow=${contextWindow} (${details ? 'from details' : 'from name pattern'})`);
+  if (details?.model_info) {
+    const info = details.model_info as Record<string, unknown>;
+    const ctxKeys = Object.keys(info).filter(k => k.includes('context'));
+    console.log(`[pi-ollama] Model ${name}: found context keys: ${ctxKeys.join(', ')}`);
+  }
 
   const cloudEmoji = isCloud ? '☁️ ' : '';
   const visionEmoji = isVision ? '👁️ ' : '';
@@ -151,12 +118,6 @@ async function fetchLocalModels(): Promise<ProviderModelConfig[]> {
   if (!clients) return [];
 
   try {
-<<<<<<< Updated upstream
-    const models = await listAllModels(clients);
-    return models
-      .filter(m => !m.isCloud)
-      .map(m => createModel(m.name, false, m.details));
-=======
     const response = await clients.local.list();
     const models = response.models || [];
 
@@ -171,7 +132,6 @@ async function fetchLocalModels(): Promise<ProviderModelConfig[]> {
 
     console.log(`[pi-ollama] Created ${result.length} local models: ${result.map(m => m.id).join(', ')}`);
     return result;
->>>>>>> Stashed changes
   } catch (err) {
     console.log(`[pi-ollama] Error fetching local models: ${err}`);
     return [];
@@ -190,26 +150,6 @@ const DEFAULT_CLOUD_MODELS = [
 ];
 
 async function fetchCloudModels(): Promise<ProviderModelConfig[]> {
-<<<<<<< Updated upstream
-  if (!clients?.hasApiKey) return [];
-
-  try {
-    const models = await listAllModels(clients);
-    return models
-      .filter(m => m.isCloud)
-      .map(m => createModel(m.name.replace(':cloud', ''), true, m.details));
-  } catch {
-    // Return default cloud models if fetch fails
-    return [
-      'kimi-k2.5',
-      'llama3.3',
-      'qwen2.5',
-      'mistral',
-      'codellama',
-      'deepseek-r1',
-      'gemma2',
-    ].map(name => createModel(name, true));
-=======
   if (!clients) return [];
 
   // If we have a cloud client with API key, fetch actual models
@@ -221,7 +161,6 @@ async function fetchCloudModels(): Promise<ProviderModelConfig[]> {
     } catch {
       // Fall through to default models
     }
->>>>>>> Stashed changes
   }
 
   // Register default cloud models even without API key
@@ -244,7 +183,7 @@ async function handleStatus(ctx: any) {
     '🦙 Ollama Status',
     '',
     `Local: ${hasLocal ? '✅ Connected' : '❌ Not running'}`,
-    `Cloud: ${clients.hasApiKey ? '✅ API key set' : '❌ No API key'}`,
+    `Cloud: ${CONFIG.apiKey ? '✅ API key set' : '❌ No API key'}`,
     '',
     `Base URL: ${CONFIG.baseUrl}`,
     `Cloud URL: ${CONFIG.cloudUrl}`,
@@ -253,11 +192,7 @@ async function handleStatus(ctx: any) {
 }
 
 async function handleModelInfo(args: string, ctx: any) {
-<<<<<<< Updated upstream
-  const modelName = args.trim();
-=======
   const modelName = args.trim() || CONFIG.baseUrl;
->>>>>>> Stashed changes
   if (!modelName) {
     ctx.ui?.notify?.('Usage: /ollama-info MODEL_NAME', 'error');
     return;
@@ -285,10 +220,10 @@ async function handleModelInfo(args: string, ctx: any) {
     return;
   }
 
-  const contextLength = getContextLength(details.model_info);
+  const contextLength = getContextLength(((details?.model_info ?? details) ?? undefined) ?? undefined);
   const isVision = hasVisionCapability(details);
-  const paramSize = details.details?.parameter_size || 'Unknown';
-  const family = details.details?.family || 'Unknown';
+  const paramSize = (details.details?.parameter_size ?? details?.parameter_size) || 'Unknown';
+  const family = details.families?.find(f => f !== undefined) ?? 'Unknown';
 
   const lines = [
     `🦙 Model: ${modelName}${isCloud ? ' (cloud)' : ''}`,
@@ -334,17 +269,6 @@ async function handleModels(pi: ExtensionAPI, ctx: any) {
 
   ctx.ui?.notify?.(lines.join('\n'), 'info');
 
-<<<<<<< Updated upstream
-  // Register provider with /v1 for OpenAI compatibility
-  const effectiveApiKey = CONFIG.apiKey || 'ollama-local';
-  const allModels = [...localModels, ...cloudModels];
-
-  if (allModels.length > 0) {
-    console.log(`[pi-ollama] Registering ${localModels.length} local, ${cloudModels.length} cloud models`);
-    pi.registerProvider('ollama', {
-      baseUrl: `${CONFIG.baseUrl}/v1`,
-      apiKey: effectiveApiKey,
-=======
   // Get local model IDs to filter out cloud models that exist locally
   const localModelIds = new Set(localModels.map(m => m.id.replace(':cloud', '')));
 
@@ -369,20 +293,16 @@ async function handleModels(pi: ExtensionAPI, ctx: any) {
   }
 
   // Register cloud models separately with cloud URL (only if not available locally)
-  if (uniqueCloudModels.length > 0 && clients?.hasApiKey) {
+  if (uniqueCloudModels.length > 0 && clients?.cloud) {
     pi.registerProvider('ollama-cloud', {
       baseUrl: CONFIG.cloudUrl,
       apiKey: CONFIG.apiKey,
->>>>>>> Stashed changes
       api: 'openai-completions',
       models: uniqueCloudModels,
     });
-<<<<<<< Updated upstream
-=======
     console.log(`[pi-ollama] Registered ${uniqueCloudModels.length} cloud models with baseUrl=${CONFIG.cloudUrl}`);
   } else if (uniqueCloudModels.length > 0) {
     console.log(`[pi-ollama] Skipped ${uniqueCloudModels.length} cloud models (no API key)`);
->>>>>>> Stashed changes
   }
 }
 
@@ -428,13 +348,9 @@ export default async function ollamaExtension(pi: ExtensionAPI) {
     },
   });
 
-<<<<<<< Updated upstream
-  // Register models on startup
-=======
   console.log(`[pi-ollama] Config loaded: baseUrl=${CONFIG.baseUrl}, cloudUrl=${CONFIG.cloudUrl}, hasApiKey=${!!CONFIG.apiKey}`);
 
   // Register models on startup with retry
->>>>>>> Stashed changes
   console.log('[pi-ollama] Fetching models...');
   try {
     await handleModels(pi, { ui: { notify: () => { } } });
