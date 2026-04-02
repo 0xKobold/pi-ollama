@@ -3,9 +3,9 @@
  *
  * Uses OpenAI-compatible endpoints via shared.ts for pi-coding-agent compatibility
  */
-import { loadConfigFromEnv, createClients, isLocalRunning, fetchModelDetails, getContextLength, hasVisionCapability, hasReasoningCapability, listAllModels, } from './shared.js';
+import { loadConfigFromEnv, loadConfigFromSettingsFiles, createClients, isLocalRunning, fetchModelDetails, getContextLength, hasVisionCapability, hasReasoningCapability, listAllModels, } from './shared.js';
 // Re-export shared utilities for consumers
-export { loadConfigFromEnv, createClients, isLocalRunning, getClientForModel, getModelName, fetchModelDetails, getContextLength, hasVisionCapability, hasReasoningCapability, listAllModels, chat, chatStream, } from './shared.js';
+export { loadConfigFromEnv, loadConfigFromSettingsFiles, createClients, isLocalRunning, getClientForModel, getModelName, fetchModelDetails, getContextLength, hasVisionCapability, hasReasoningCapability, listAllModels, chat, chatStream, } from './shared.js';
 // Default config
 const DEFAULT_CONFIG = {
     baseUrl: "http://localhost:11434",
@@ -14,20 +14,31 @@ const DEFAULT_CONFIG = {
 };
 let CONFIG = { ...DEFAULT_CONFIG };
 let clients = null;
-// Load from pi settings and env
+// Load from pi settings files and env
 function loadConfig(pi) {
     // Reset to defaults first
     CONFIG = { ...DEFAULT_CONFIG };
-    // Try pi.settings first
+    // Try pi.settings first if a runtime provides it
     const settings = pi.settings;
     if (settings?.get) {
         const baseUrl = settings.get("ollama.baseUrl");
+        const cloudUrl = settings.get("ollama.cloudUrl");
         const apiKey = settings.get("ollama.apiKey");
-        // Only override if value is actually set (not undefined/null)
         if (baseUrl != null)
             CONFIG.baseUrl = baseUrl;
+        if (cloudUrl != null)
+            CONFIG.cloudUrl = cloudUrl;
         if (apiKey != null)
             CONFIG.apiKey = apiKey;
+    }
+    else {
+        const fileConfig = loadConfigFromSettingsFiles();
+        if (fileConfig.baseUrl)
+            CONFIG.baseUrl = fileConfig.baseUrl;
+        if (fileConfig.cloudUrl)
+            CONFIG.cloudUrl = fileConfig.cloudUrl;
+        if (fileConfig.apiKey)
+            CONFIG.apiKey = fileConfig.apiKey;
     }
     // Environment override (runtime)
     if (typeof process !== 'undefined') {

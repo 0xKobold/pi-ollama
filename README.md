@@ -85,21 +85,23 @@ Models are displayed with accurate metadata:
 
 ## Configuration
 
-Add to your pi settings (`~/.pi/agent/settings.json`):
+Add to your pi settings (`~/.pi/agent/settings.json` or `.pi/settings.json`):
 
 ```json
 {
   "ollama": {
     "baseUrl": "http://localhost:11434",
-    "apiKey": "your-ollama-cloud-api-key",
-    "defaultModel": "llama3.1"
+    "cloudUrl": "https://ollama.com",
+    "apiKey": "your-ollama-cloud-api-key"
   }
 }
 ```
 
-Or set via environment:
+Project settings override global settings. Environment variables still override settings at runtime:
+
 ```bash
 export OLLAMA_BASE_URL="http://localhost:11434"
+export OLLAMA_CLOUD_URL="https://ollama.com"
 export OLLAMA_API_KEY="your-api-key"
 ```
 

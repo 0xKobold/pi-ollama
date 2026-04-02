@@ -7,6 +7,7 @@
 import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
 import {
   loadConfigFromEnv,
+  loadConfigFromSettingsFiles,
   createClients,
   isLocalRunning,
   fetchModelDetails,
@@ -22,6 +23,7 @@ import {
 // Re-export shared utilities for consumers
 export {
   loadConfigFromEnv,
+  loadConfigFromSettingsFiles,
   createClients,
   isLocalRunning,
   getClientForModel,
@@ -53,20 +55,26 @@ const DEFAULT_CONFIG: OllamaConfig = {
 let CONFIG: OllamaConfig = { ...DEFAULT_CONFIG };
 let clients: OllamaClients | null = null;
 
-// Load from pi settings and env
+// Load from pi settings files and env
 function loadConfig(pi: ExtensionAPI) {
   // Reset to defaults first
   CONFIG = { ...DEFAULT_CONFIG };
 
-  // Try pi.settings first
+  // Try pi.settings first if a runtime provides it
   const settings = (pi as any).settings;
   if (settings?.get) {
     const baseUrl = settings.get("ollama.baseUrl");
+    const cloudUrl = settings.get("ollama.cloudUrl");
     const apiKey = settings.get("ollama.apiKey");
 
-    // Only override if value is actually set (not undefined/null)
     if (baseUrl != null) CONFIG.baseUrl = baseUrl;
+    if (cloudUrl != null) CONFIG.cloudUrl = cloudUrl;
     if (apiKey != null) CONFIG.apiKey = apiKey;
+  } else {
+    const fileConfig = loadConfigFromSettingsFiles();
+    if (fileConfig.baseUrl) CONFIG.baseUrl = fileConfig.baseUrl;
+    if (fileConfig.cloudUrl) CONFIG.cloudUrl = fileConfig.cloudUrl;
+    if (fileConfig.apiKey) CONFIG.apiKey = fileConfig.apiKey;
   }
 
   // Environment override (runtime)

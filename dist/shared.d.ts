@@ -14,6 +14,11 @@ export declare const DEFAULT_CONFIG: OllamaConfig;
  * Load config from environment variables
  */
 export declare function loadConfigFromEnv(): Partial<OllamaConfig>;
+/**
+ * Load config from pi settings files.
+ * Project settings override global settings when present.
+ */
+export declare function loadConfigFromSettingsFiles(): Partial<OllamaConfig>;
 export interface OllamaClients {
     local: {
         baseUrl: string;
