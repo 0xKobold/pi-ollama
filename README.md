@@ -85,21 +85,45 @@ Models are displayed with accurate metadata:
 
 ## Configuration
 
-Add to your pi settings (`~/.pi/agent/settings.json`):
+Configuration is loaded with the following precedence (highest to lowest):
+
+1. **Environment variables** (override everything)
+2. **`pi.settings`** (runtime API, when available)
+3. **`.pi/settings.json`** (project-local settings)
+4. **`~/.pi/agent/settings.json`** (global user settings)
+
+### Settings File
+
+Add to your global settings (`~/.pi/agent/settings.json`):
 
 ```json
 {
   "ollama": {
     "baseUrl": "http://localhost:11434",
-    "apiKey": "your-ollama-cloud-api-key",
-    "defaultModel": "llama3.1"
+    "cloudUrl": "https://ollama.com",
+    "apiKey": "your-ollama-cloud-api-key"
   }
 }
 ```
 
-Or set via environment:
+Or create project-specific settings (`.pi/settings.json` in your project root):
+
+```json
+{
+  "ollama": {
+    "baseUrl": "http://custom:11434",
+    "apiKey": "project-specific-key"
+  }
+}
+```
+
+**Note:** Project settings override global settings.
+
+### Environment Variables
+
 ```bash
-export OLLAMA_BASE_URL="http://localhost:11434"
+export OLLAMA_HOST="http://localhost:11434"
+export OLLAMA_HOST_CLOUD="https://ollama.com"
 export OLLAMA_API_KEY="your-api-key"
 ```
 
