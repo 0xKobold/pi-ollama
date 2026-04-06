@@ -13,6 +13,7 @@ import {
   getContextLength,
   hasVisionCapability,
   hasReasoningCapability,
+  DEFAULT_CONFIG,
   type OllamaConfig,
 } from "../src/shared.ts";
 
@@ -27,7 +28,7 @@ describe("shared.ts - OpenAI Compatible Utilities", () => {
     });
 
     test("createClients with default config", () => {
-      const clients = createClients();
+      const clients = createClients(DEFAULT_CONFIG);
       expect(clients.local).toBeDefined();
       expect(clients.cloud).toBeNull();
     });
@@ -59,7 +60,7 @@ describe("shared.ts - OpenAI Compatible Utilities", () => {
     });
 
     test("getClientForModel returns local client", () => {
-      const clients = createClients();
+      const clients = createClients(DEFAULT_CONFIG);
       const result = getClientForModel("llama3", clients);
       expect(result).toBe(clients.local);
     });
@@ -77,7 +78,7 @@ describe("shared.ts - OpenAI Compatible Utilities", () => {
     });
 
     test("getClientForModel falls back to local if no cloud client", () => {
-      const clients = createClients(); // No API key
+      const clients = createClients(DEFAULT_CONFIG); // No API key
       const result = getClientForModel("llama3:cloud", clients);
       expect(result).toBe(clients.local);
     });

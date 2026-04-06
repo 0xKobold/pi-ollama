@@ -1,6 +1,6 @@
 {
   "name": "@0xkobold/pi-ollama",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Ollama extension for pi-coding-agent. Unified local + cloud Ollama support with model management",
   "keywords": [
     "pi-package",
@@ -27,9 +27,11 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "clean": "rm -rf dist",
+    "build": "bun run clean && tsc",
     "dev": "tsc --watch",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
   },
   "pi": {
     "extensions": [
@@ -38,7 +40,7 @@
     "image": "https://ollama.com/public/ollama.png"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": ">=0.6.0",
+    "@mariozechner/pi-coding-agent": ">=0.65.2",
     "@sinclair/typebox": ">=0.32.0",
     "ollama": "^0.6.3"
   },
