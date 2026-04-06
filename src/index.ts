@@ -15,6 +15,7 @@ import {
   hasVisionCapability,
   hasReasoningCapability,
   loadConfigFromEnv,
+  loadConfigFromSettingsFiles,
   type OllamaConfig,
   type OllamaClients,
   type OllamaExtensionState,
@@ -62,14 +63,20 @@ function initializeState(pi: ExtensionAPI): OllamaExtensionState {
   let config = { ...DEFAULT_CONFIG };
 
   // Use standardized keys: pi-ollama.baseUrl, pi-ollama.cloudUrl, pi-ollama.apiKey
-  const settings = pi.settings;
+  const settings = (pi as any).settings;
   if (settings?.get) {
     config.baseUrl = settings.get("pi-ollama.baseUrl") ?? config.baseUrl;
     config.cloudUrl = settings.get("pi-ollama.cloudUrl") ?? config.cloudUrl;
     config.apiKey = settings.get("pi-ollama.apiKey") ?? config.apiKey;
+  } else {
+    // Fallback: read from settings files directly
+    const fileConfig = loadConfigFromSettingsFiles();
+    if (fileConfig.baseUrl) config.baseUrl = fileConfig.baseUrl;
+    if (fileConfig.cloudUrl) config.cloudUrl = fileConfig.cloudUrl;
+    if (fileConfig.apiKey) config.apiKey = fileConfig.apiKey;
   }
 
-  // Environment override
+  // Environment override (highest priority)
   const envConfig = loadConfigFromEnv();
   config = { ...config, ...envConfig };
 

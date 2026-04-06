@@ -5,8 +5,12 @@
  */
 
 import { test, expect, describe } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   loadConfigFromEnv,
+  loadConfigFromSettingsFiles,
   createClients,
   getClientForModel,
   getModelName,
@@ -25,6 +29,56 @@ describe("shared.ts - OpenAI Compatible Utilities", () => {
       // Config should be empty when no env vars are set
       // (Tests can't set env vars, so this tests the default behavior)
       expect(Object.keys(config).length).toBeGreaterThanOrEqual(0);
+    });
+
+    test("loadConfigFromSettingsFiles reads global and project settings", () => {
+      const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-ollama-home-"));
+      const tempProject = fs.mkdtempSync(path.join(os.tmpdir(), "pi-ollama-project-"));
+
+      const oldHome = process.env.HOME;
+      const oldCwd = process.cwd();
+
+      try {
+        fs.mkdirSync(path.join(tempHome, ".pi", "agent"), { recursive: true });
+        fs.mkdirSync(path.join(tempProject, ".pi"), { recursive: true });
+
+        fs.writeFileSync(
+          path.join(tempHome, ".pi", "agent", "settings.json"),
+          JSON.stringify({
+            ollama: {
+              baseUrl: "http://global:11434",
+              cloudUrl: "https://global.example",
+              apiKey: "global-key",
+            },
+          })
+        );
+
+        fs.writeFileSync(
+          path.join(tempProject, ".pi", "settings.json"),
+          JSON.stringify({
+            ollama: {
+              apiKey: "project-key",
+            },
+          })
+        );
+
+        process.env.HOME = tempHome;
+        process.chdir(tempProject);
+
+        const config = loadConfigFromSettingsFiles();
+        expect(config.baseUrl).toBe("http://global:11434");
+        expect(config.cloudUrl).toBe("https://global.example");
+        expect(config.apiKey).toBe("project-key");
+      } finally {
+        process.chdir(oldCwd);
+        if (oldHome === undefined) {
+          delete process.env.HOME;
+        } else {
+          process.env.HOME = oldHome;
+        }
+        fs.rmSync(tempHome, { recursive: true, force: true });
+        fs.rmSync(tempProject, { recursive: true, force: true });
+      }
     });
 
     test("createClients with default config", () => {

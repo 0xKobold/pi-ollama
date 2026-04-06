@@ -6,9 +6,7 @@
  */
 
 import { Ollama } from 'ollama';
-
 import { Type, Static } from '@sinclair/typebox';
-import { Ollama } from 'ollama';
 
 // ============================================================================
 // SCHEMAS
@@ -96,6 +94,45 @@ export function loadConfigFromEnv(): Partial<OllamaConfig> {
   }
   
   return config;
+}
+
+/**
+ * Load config from pi settings files.
+ * Project settings override global settings when present.
+ */
+export function loadConfigFromSettingsFiles(): Partial<OllamaConfig> {
+  if (typeof process === 'undefined') return {};
+
+  const fs = require('node:fs') as typeof import('node:fs');
+  const os = require('node:os') as typeof import('node:os');
+  const path = require('node:path') as typeof import('node:path');
+
+  const readSettings = (filePath: string): Record<string, any> => {
+    try {
+      if (!fs.existsSync(filePath)) return {};
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const globalSettingsPath = path.join(os.homedir(), '.pi', 'agent', 'settings.json');
+  const projectSettingsPath = path.join(process.cwd(), '.pi', 'settings.json');
+
+  const globalSettings = readSettings(globalSettingsPath);
+  const projectSettings = readSettings(projectSettingsPath);
+
+  const globalOllama = globalSettings.ollama && typeof globalSettings.ollama === 'object' ? globalSettings.ollama : {};
+  const projectOllama = projectSettings.ollama && typeof projectSettings.ollama === 'object' ? projectSettings.ollama : {};
+  const merged = { ...globalOllama, ...projectOllama };
+
+  return {
+    baseUrl: typeof merged.baseUrl === 'string' ? merged.baseUrl : undefined,
+    cloudUrl: typeof merged.cloudUrl === 'string' ? merged.cloudUrl : undefined,
+    apiKey: typeof merged.apiKey === 'string' ? merged.apiKey : undefined,
+  };
 }
 
 /**
