@@ -2,6 +2,13 @@
 
 Ollama integration for [pi-coding-agent](https://github.com/badlogic/pi-mono) with accurate model details from `/api/show`.
 
+## Changelog
+
+### v0.4.1
+
+- **Fix**: Cloud models now correctly use `/v1` endpoint. Previously, `ollama-cloud` was registered with `baseUrl: "https://ollama.com"`, causing pi to hit `https://ollama.com/chat/completions` (HTML homepage) instead of `https://ollama.com/v1/chat/completions`. This was already fixed for the local provider but was missed when the cloud provider was introduced.
+- **Fix**: Trailing slashes in `cloudUrl` config are now properly stripped before appending `/v1`.
+
 ## Installation
 
 ```bash
