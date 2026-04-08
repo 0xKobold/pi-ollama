@@ -255,8 +255,11 @@ async function handleModels(pi: ExtensionAPI, state: OllamaExtensionState, ctx: 
   }
 
   if (uniqueCloudModels.length > 0 && state.clients.cloud) {
+    const cloudBaseUrl = state.config.cloudUrl.replace(/\/+$/, '').endsWith('/v1')
+      ? state.config.cloudUrl.replace(/\/+$/, '')
+      : `${state.config.cloudUrl.replace(/\/+$/, '')}/v1`;
     pi.registerProvider('ollama-cloud', {
-      baseUrl: state.config.cloudUrl,
+      baseUrl: cloudBaseUrl,
       apiKey: state.config.apiKey,
       api: 'openai-completions',
       models: uniqueCloudModels,
