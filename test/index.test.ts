@@ -1,13 +1,13 @@
 /**
  * Pi Ollama Extension Tests
- * 
+ *
  * Tests for Ollama integration with /api/show support
- * @version 0.1.0
+ * @version 0.5.0
  */
 
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe } from "bun:test";
 
-describe("pi-ollama v0.1.0", () => {
+describe("pi-ollama v0.5.0", () => {
   describe("Model Info Extraction", () => {
     test("should extract context length from gemma3", async () => {
       const { getContextLength } = await import("../src/index.ts");
@@ -44,13 +44,13 @@ describe("pi-ollama v0.1.0", () => {
       expect(contextLength).toBe(4096);
     });
 
-    test("should fallback to 4096 for unknown models", async () => {
+    test("should fallback to 128k for unknown models", async () => {
       const { getContextLength } = await import("../src/index.ts");
 
       const unknownInfo: any = {};
 
       const contextLength = getContextLength(unknownInfo);
-      expect(contextLength).toBe(4096); // conservative default
+      expect(contextLength).toBe(131072); // 128k default
     });
 
     test("should detect vision capability", async () => {
@@ -89,7 +89,7 @@ describe("pi-ollama v0.1.0", () => {
         on: () => { /* mock */ },
         settings: { get: () => undefined },
       };
-      
+
       ollamaExt(mockPi as any);
       expect(true).toBe(true);
     });
@@ -103,10 +103,10 @@ describe("pi-ollama v0.1.0", () => {
         on: () => { /* mock */ },
         settings: { get: () => undefined },
       };
-      
+
       const { default: ollamaExt } = await import("../src/index.ts");
-      ollamaExt(mockPi as any);
-      
+      await ollamaExt(mockPi as any);
+
       expect(commands.length).toBeGreaterThan(1);
     });
   });
@@ -119,16 +119,16 @@ describe("pi-ollama v0.1.0", () => {
         registerTool: () => { /* mock */ },
         registerProvider: () => { /* mock */ },
         on: () => { /* mock */ },
-        settings: { 
+        settings: {
           get: (key: string) => {
             if (key === "ollama.baseUrl") return "http://localhost:11434";
             return undefined;
-          } 
+          },
         },
       };
-      
+
       ollamaExt(mockPi as any);
-      
+
       // Extension should load with default config
       expect(true).toBe(true);
     });
@@ -142,7 +142,7 @@ describe("pi-ollama v0.1.0", () => {
         on: () => { /* mock */ },
         settings: { get: () => undefined },
       };
-      
+
       // Should not throw with no settings
       ollamaExt(mockPi as any);
       expect(true).toBe(true);
@@ -165,7 +165,7 @@ describe("pi-ollama v0.1.0", () => {
         { info: { "claude.context_length": 200000 }, expected: 200000 },
         { info: { "mixtral.context_length": 32768 }, expected: 32768 },
         { info: {}, name: "kimi-k2.5", expected: 262144 }, // fallback to name
-        { info: {}, name: "unknown-model", expected: 4096 }, // default
+        { info: {}, name: "unknown-model", expected: 131072 }, // 128k default
       ];
 
       for (const tc of testCases) {
@@ -177,9 +177,7 @@ describe("pi-ollama v0.1.0", () => {
     test("should fallback to name detection for kimi models", async () => {
       const { getContextLength } = await import("../src/index.ts");
 
-      // Test detection from model name when model_info doesn't have context
       const result = getContextLength({}, "kimi-k2.5:cloud");
-      // kimi-k2.5 has 262k (262144) context
       expect(result).toBe(262144);
     });
 
@@ -202,7 +200,6 @@ describe("pi-ollama v0.1.0", () => {
         "llama.context_length": 8192,
       };
 
-      // Should prefer architecture-specific over generic context_length
       const result = getContextLength(model);
       expect(result).toBe(8192);
     });
@@ -223,6 +220,26 @@ describe("pi-ollama v0.1.0", () => {
       const { hasVisionCapability } = await import("../src/index.ts");
       expect(typeof hasVisionCapability).toBe("function");
     });
+
+    test("should export hasReasoningCapability", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(typeof hasReasoningCapability).toBe("function");
+    });
+
+    test("should export error types", async () => {
+      const { OllamaError, OllamaAuthError, OllamaRateLimitError, OllamaModelError, OllamaServerError } = await import("../src/index.ts");
+      expect(typeof OllamaError).toBe("function");
+      expect(typeof OllamaAuthError).toBe("function");
+      expect(typeof OllamaRateLimitError).toBe("function");
+      expect(typeof OllamaModelError).toBe("function");
+      expect(typeof OllamaServerError).toBe("function");
+    });
+
+    test("should export constants", async () => {
+      const { DEFAULT_CONTEXT_LENGTH, DEFAULT_MAX_TOKENS } = await import("../src/index.ts");
+      expect(DEFAULT_CONTEXT_LENGTH).toBe(131072);
+      expect(DEFAULT_MAX_TOKENS).toBe(8192);
+    });
   });
 
   describe("Error Handling", () => {
@@ -231,7 +248,7 @@ describe("pi-ollama v0.1.0", () => {
 
       // @ts-ignore - testing null handling
       const result = getContextLength(null, "kimi-k2.5:cloud");
-      expect(result).toBe(262144); // kimi-k2 has 262k context
+      expect(result).toBe(262144);
     });
 
     test("should detect kimi from name when model_info empty", async () => {
@@ -239,7 +256,7 @@ describe("pi-ollama v0.1.0", () => {
 
       const emptyInfo = {};
       const result = getContextLength(emptyInfo, "kimi-k2.5:cloud");
-      expect(result).toBe(262144); // kimi-k2 has 262k context
+      expect(result).toBe(262144);
     });
 
     test("should detect minimax from name", async () => {
@@ -247,7 +264,7 @@ describe("pi-ollama v0.1.0", () => {
 
       const emptyInfo = {};
       const result = getContextLength(emptyInfo, "minimax-m2.5:cloud");
-      expect(result).toBe(204800); // minimax-m2 has 204k context
+      expect(result).toBe(204800);
     });
 
     test("should handle undefined model info", async () => {
@@ -255,7 +272,7 @@ describe("pi-ollama v0.1.0", () => {
 
       // @ts-ignore - testing null handling
       const result = getContextLength(undefined);
-      expect(result).toBe(4096); // default fallback
+      expect(result).toBe(131072); // 128k default fallback
     });
 
     test("should handle malformed model info", async () => {
@@ -263,15 +280,56 @@ describe("pi-ollama v0.1.0", () => {
 
       const malformed: any = {
         "gemma3.context_length": "not-a-number",
-        "general.architecture": 12345, // Should be string
+        "general.architecture": 12345,
       };
 
-      // Should not throw
       const contextLength = getContextLength(malformed);
       expect(typeof contextLength).toBe("number");
 
       const vision = hasVisionCapability(malformed);
       expect(typeof vision).toBe("boolean");
+    });
+  });
+
+  describe("Reasoning Capability (v0.5.0)", () => {
+    test("should NOT flag instruct models as reasoning", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(hasReasoningCapability("llama3:instruct")).toBe(false);
+    });
+
+    test("should NOT flag chat models as reasoning", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(hasReasoningCapability("mistral:chat")).toBe(false);
+    });
+
+    test("should NOT flag code models as reasoning", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(hasReasoningCapability("codellama")).toBe(false);
+      expect(hasReasoningCapability("qwen2.5-coder")).toBe(false);
+    });
+
+    test("should detect deepseek as reasoning", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(hasReasoningCapability("deepseek-v3")).toBe(true);
+      expect(hasReasoningCapability("deepseek-r1")).toBe(true);
+    });
+
+    test("should detect r1 from capabilities", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(hasReasoningCapability("model", { capabilities: ["thinking"] } as any)).toBe(true);
+      expect(hasReasoningCapability("model", { capabilities: ["reason"] } as any)).toBe(true);
+    });
+
+    test("should detect qwq as reasoning", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(hasReasoningCapability("qwq-32b")).toBe(true);
+    });
+
+    test("should NOT flag regular models as reasoning", async () => {
+      const { hasReasoningCapability } = await import("../src/index.ts");
+      expect(hasReasoningCapability("llama3")).toBe(false);
+      expect(hasReasoningCapability("mistral")).toBe(false);
+      expect(hasReasoningCapability("gemma3")).toBe(false);
     });
   });
 });

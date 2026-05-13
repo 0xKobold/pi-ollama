@@ -1,13 +1,15 @@
 /**
- * Pi Ollama Extension - Using Official ollama-js Client
+ * Pi Ollama Extension — Unified local + cloud Ollama support
  *
- * Uses the official Ollama JavaScript client for proper cloud/local API handling
- * https://github.com/ollama/ollama-js
+ * Uses the official Ollama JavaScript client for proper cloud/local API handling.
+ * See: https://docs.ollama.com/
  */
 
 import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
 import {
   DEFAULT_CONFIG,
+  DEFAULT_CONTEXT_LENGTH,
+  DEFAULT_MAX_TOKENS,
   createClients,
   isLocalRunning,
   fetchModelDetails,
@@ -27,18 +29,26 @@ import {
 // ============================================================================
 
 const log = {
-  info: (msg: string, ...args: any[]) => console.log(`[pi-ollama] ${msg}`, ...args),
-  debug: (msg: string, ...args: any[]) => console.debug(`[pi-ollama] ${msg}`, ...args),
-  warn: (msg: string, ...args: any[]) => console.warn(`[pi-ollama] ${msg}`, ...args),
-  error: (msg: string, ...args: any[]) => console.error(`[pi-ollama] ${msg}`, ...args),
+  info: (msg: string, ...args: unknown[]) => console.log(`[pi-ollama] ${msg}`, ...args),
+  debug: (msg: string, ...args: unknown[]) => console.debug(`[pi-ollama] ${msg}`, ...args),
+  warn: (msg: string, ...args: unknown[]) => console.warn(`[pi-ollama] ${msg}`, ...args),
+  error: (msg: string, ...args: unknown[]) => console.error(`[pi-ollama] ${msg}`, ...args),
 };
 
-// Re-export utilities the tests rely on
+// Re-export utilities for consumers
 export {
   fetchModelDetails,
   getContextLength,
   hasVisionCapability,
   hasReasoningCapability,
+  DEFAULT_CONTEXT_LENGTH,
+  DEFAULT_MAX_TOKENS,
+  OllamaError,
+  OllamaRateLimitError,
+  OllamaAuthError,
+  OllamaModelError,
+  OllamaServerError,
+  classifyHttpError,
 } from './shared.js';
 
 // ============================================================================
@@ -52,25 +62,36 @@ interface ExtensionContext {
   pi?: ExtensionAPI;
 }
 
+interface PiSettings {
+  get?: (key: string) => unknown;
+}
+
 // ============================================================================
 // STATE MANAGEMENT
 // ============================================================================
 
 /**
  * Initializes the extension state from pi settings and environment variables.
+ *
+ * Config priority (highest wins):
+ * 1. Environment variables (OLLAMA_HOST, OLLAMA_HOST_CLOUD, OLLAMA_API_KEY)
+ * 2. pi.settings runtime API
+ * 3. .pi/settings.json (project-local)
+ * 4. ~/.pi/agent/settings.json (global)
+ * 5. DEFAULT_CONFIG
  */
-function initializeState(pi: ExtensionAPI): OllamaExtensionState {
+async function initializeState(pi: ExtensionAPI): Promise<OllamaExtensionState> {
   let config = { ...DEFAULT_CONFIG };
 
   // Use standardized keys: pi-ollama.baseUrl, pi-ollama.cloudUrl, pi-ollama.apiKey
-  const settings = (pi as any).settings;
+  const settings = (pi as unknown as { settings?: PiSettings }).settings;
   if (settings?.get) {
-    config.baseUrl = settings.get("pi-ollama.baseUrl") ?? config.baseUrl;
-    config.cloudUrl = settings.get("pi-ollama.cloudUrl") ?? config.cloudUrl;
-    config.apiKey = settings.get("pi-ollama.apiKey") ?? config.apiKey;
+    config.baseUrl = (settings.get("pi-ollama.baseUrl") as string) ?? config.baseUrl;
+    config.cloudUrl = (settings.get("pi-ollama.cloudUrl") as string) ?? config.cloudUrl;
+    config.apiKey = (settings.get("pi-ollama.apiKey") as string) ?? config.apiKey;
   } else {
     // Fallback: read from settings files directly
-    const fileConfig = loadConfigFromSettingsFiles();
+    const fileConfig = await loadConfigFromSettingsFiles();
     if (fileConfig.baseUrl) config.baseUrl = fileConfig.baseUrl;
     if (fileConfig.cloudUrl) config.cloudUrl = fileConfig.cloudUrl;
     if (fileConfig.apiKey) config.apiKey = fileConfig.apiKey;
@@ -81,9 +102,9 @@ function initializeState(pi: ExtensionAPI): OllamaExtensionState {
   config = { ...config, ...envConfig };
 
   const clients = createClients(config);
-  
+
   log.info(`State initialized: baseUrl=${config.baseUrl}, cloudUrl=${config.cloudUrl}, hasApiKey=${!!config.apiKey}`);
-  
+
   return { config, clients };
 }
 
@@ -94,7 +115,7 @@ function initializeState(pi: ExtensionAPI): OllamaExtensionState {
 function createModel(name: string, isCloud: boolean, details?: ModelDetails): ProviderModelConfig {
   const contextWindow = getContextLength(details || null, name);
   const isVision = details ? hasVisionCapability(details) : false;
-  const isReasoning = hasReasoningCapability(name);
+  const isReasoning = hasReasoningCapability(name, details);
 
   const cloudEmoji = isCloud ? '☁️ ' : '';
   const visionEmoji = isVision ? '👁️ ' : '';
@@ -107,7 +128,7 @@ function createModel(name: string, isCloud: boolean, details?: ModelDetails): Pr
     input: isVision ? ['text', 'image'] : ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow,
-    maxTokens: 8192,
+    maxTokens: Math.min(contextWindow, 16384),
   };
 }
 
@@ -134,7 +155,7 @@ async function fetchLocalModels(state: OllamaExtensionState): Promise<ProviderMo
 }
 
 const DEFAULT_CLOUD_MODELS = [
-  'kimi-k2.5', 'llama3.3', 'qwen2.5', 'mistral', 'codellama', 'deepseek-r1', 'gemma2',
+  'kimi-k2.5', 'llama3.3', 'qwen3', 'mistral', 'codellama', 'deepseek-r1', 'gemma3',
 ];
 
 async function fetchCloudModels(state: OllamaExtensionState): Promise<ProviderModelConfig[]> {
@@ -143,7 +164,7 @@ async function fetchCloudModels(state: OllamaExtensionState): Promise<ProviderMo
     try {
       const response = await clients.cloud.list();
       const models = response.models || [];
-      return models.map((m: any) => createModel(m.name, true));
+      return models.map((m: { name: string }) => createModel(m.name, true));
     } catch (err) {
       log.debug(`Error fetching cloud models, using defaults: ${err}`);
     }
@@ -195,8 +216,9 @@ async function handleModelInfo(state: OllamaExtensionState, args: string, ctx: E
 
   const contextLength = getContextLength(details);
   const isVision = hasVisionCapability(details);
+  const isReasoning = hasReasoningCapability(modelName, details);
   const paramSize = (details.details?.parameter_size ?? details?.parameter_size) || 'Unknown';
-  const family = details.families?.find(f => f !== undefined) ?? 'Unknown';
+  const family = details.families?.[0] ?? details.details?.family ?? 'Unknown';
 
   const lines = [
     `🦙 Model: ${modelName}${isCloud ? ' (cloud)' : ''}`,
@@ -205,6 +227,7 @@ async function handleModelInfo(state: OllamaExtensionState, args: string, ctx: E
     `Parameters: ${paramSize}`,
     `Context: ${contextLength.toLocaleString()} tokens`,
     `Vision: ${isVision ? '✅' : '❌'}`,
+    `Reasoning: ${isReasoning ? '✅' : '❌'}`,
   ];
 
   if (details.capabilities?.length) {
@@ -255,7 +278,7 @@ async function handleModels(pi: ExtensionAPI, state: OllamaExtensionState, ctx: 
   }
 
   if (uniqueCloudModels.length > 0 && state.clients.cloud) {
-    const cloudBase = state.config.cloudUrl.replace(/\/+\$/, '');
+    const cloudBase = state.config.cloudUrl.replace(/\/+$/, '');
     const cloudBaseUrl = cloudBase.endsWith('/v1') ? cloudBase : `${cloudBase}/v1`;
     pi.registerProvider('ollama-cloud', {
       baseUrl: cloudBaseUrl,
@@ -271,7 +294,7 @@ async function handleModels(pi: ExtensionAPI, state: OllamaExtensionState, ctx: 
 // ============================================================================
 
 export default async function ollamaExtension(pi: ExtensionAPI) {
-  const state = initializeState(pi);
+  const state = await initializeState(pi);
 
   pi.registerCommand('ollama-status', {
     description: 'Check Ollama connection status',

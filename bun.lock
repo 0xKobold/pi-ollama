@@ -5,7 +5,7 @@
     "": {
       "name": "@0xkobold/pi-ollama",
       "peerDependencies": {
-        "@mariozechner/pi-coding-agent": ">=0.6.0",
+        "@mariozechner/pi-coding-agent": ">=0.65.2",
         "@sinclair/typebox": ">=0.32.0",
         "ollama": "^0.6.3",
       },
